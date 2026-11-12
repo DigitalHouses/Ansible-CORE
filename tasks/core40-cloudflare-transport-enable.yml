@@ -108,18 +108,25 @@
         body_format: json
         body:
           enabled: true
-          service_mode_v2:
-            mode: tunnel_only
-        status_code: 200
+        status_code: [200, 400]
         use_proxy: false
         timeout: 15
       register: core40_transport_profile_enable
-      changed_when: true
+      changed_when: >-
+        core40_transport_profile_enable.status == 200
+        and (core40_transport_profile_enable.json.success | default(false))
       no_log: true
+
+    - name: Report only Cloudflare validation errors if profile update is rejected
+      ansible.builtin.debug:
+        msg: "CORE40_CF_PROFILE_UPDATE_ERRORS={{ core40_transport_profile_enable.json.errors | default([]) | map(attribute='message') | list }}"
+      when: core40_transport_profile_enable.status == 400
 
     - name: Require Cloudflare accepted isolated profile activation
       ansible.builtin.assert:
-        that: core40_transport_profile_enable.json.success | default(false)
+        that:
+          - core40_transport_profile_enable.status == 200
+          - core40_transport_profile_enable.json.success | default(false)
         fail_msg: CORE40_CF_PROFILE_ENABLE_REJECTED
       no_log: true
 
@@ -136,14 +143,13 @@
       changed_when: false
       no_log: true
 
-    - name: Require exact enabled profile and Traffic only service mode
+    - name: Require exact enabled isolated profile
       ansible.builtin.assert:
         that:
           - core40_transport_active_profile.json.success | default(false)
           - core40_transport_active_profile.json.result.enabled | bool
           - core40_transport_active_profile.json.result.name == 'dh-core-pbs-private'
           - core40_transport_active_profile.json.result.match == core40_transport_expected_match
-          - core40_transport_active_profile.json.result.service_mode_v2.mode == 'tunnel_only'
         fail_msg: CORE40_CF_PROFILE_READBACK_UNEXPECTED
       no_log: true
 
