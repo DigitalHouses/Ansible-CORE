@@ -16,13 +16,17 @@
     - name: Refuse execution from a HOME or unexpected CORE runner
       ansible.builtin.assert:
         that:
-          - core40_action in ['audit', 'prepare']
+          - core40_action in ['audit', 'prepare', 'cf-audit']
           - core40_site == 'dh-core'
           - core40_profile == 'core'
           - pve.ipv4 is match('^[0-9]+(\\.[0-9]+){3}$')
           - pve.ipv4.split('.')[-1] | int == 240
           - pve.node | length > 0
         fail_msg: CORE40_MUST_RUN_FROM_DH_CORE_SEMAPHORE
+
+    - name: Inspect CORE Cloudflare readiness without changing configuration
+      ansible.builtin.include_tasks: ../tasks/core40-cloudflare-readiness.yml
+      when: core40_action == 'cf-audit'
 
     - name: Register only the pinned CORE Proxmox host
       ansible.builtin.add_host:

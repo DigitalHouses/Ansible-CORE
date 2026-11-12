@@ -1,0 +1,90 @@
+---
+# Read-only API preflight for CORE Cloudflare One client; no mutation.
+- name: Validate CORE Cloudflare credentials before read-only inspection
+  ansible.builtin.assert:
+    that:
+      - (DH_CLOUDFLARE_API_TOKEN | default('')) | length > 0
+      - DH_CLOUDFLARE_TEAM_NAME | default('') == 'digitalhouses'
+      - (DH_CLOUDFLARE_ENROLL_CLIENT_ID | default('')) | length > 0
+      - (DH_CLOUDFLARE_ENROLL_CLIENT_SECRET | default('')) | length > 0
+    fail_msg: CORE40_CLOUDFLARE_CREDENTIALS_MISSING_FROM_TASK05
+  no_log: true
+
+- name: Identify Cloudflare account from existing canonical zone
+  ansible.builtin.uri:
+    url: https://api.cloudflare.com/client/v4/zones?name=digitalhouses.vip
+    method: GET
+    headers:
+      Authorization: "Bearer {{ DH_CLOUDFLARE_API_TOKEN }}"
+    status_code: [200, 401, 403]
+    use_proxy: false
+    timeout: 12
+  register: core40_cf_zone_raw
+  changed_when: false
+  no_log: true
+
+- name: Refuse unavailable Cloudflare account lookup
+  ansible.builtin.assert:
+    that:
+      - core40_cf_zone_raw.status == 200
+      - core40_cf_zone_raw.json.success | default(false)
+      - (core40_cf_zone_raw.json.result | default([]) | selectattr('name', 'equalto', 'digitalhouses.vip') | list | length) == 1
+    fail_msg: CORE40_CLOUDFLARE_ZONE_SCOPE_MISSING_OR_AMBIGUOUS
+
+- name: Select only canonical account
+  ansible.builtin.set_fact:
+    core40_cf_account_id: "{{ (core40_cf_zone_raw.json.result | selectattr('name', 'equalto', 'digitalhouses.vip') | first).account.id }}"
+  no_log: true
+
+- name: Read Cloudflare routing, enrollment and device configuration
+  ansible.builtin.uri:
+    url: "https://api.cloudflare.com/client/v4/accounts/{{ core40_cf_account_id }}/{{ item.path }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ DH_CLOUDFLARE_API_TOKEN }}"
+    status_code: [200, 401, 403, 404]
+    use_proxy: false
+    timeout: 12
+  loop:
+    - {name: routes, path: teamnet/routes?per_page=100}
+    - {name: apps, path: access/apps?per_page=100}
+    - {name: policies, path: access/policies?per_page=100}
+    - {name: tokens, path: access/service_tokens?per_page=100}
+    - {name: device_profiles, path: devices/policies}
+    - {name: default_includes, path: devices/policy/include}
+  loop_control:
+    label: "{{ item.name }}"
+  register: core40_cf_queries
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: Report nonsecret Cloudflare API read status
+  ansible.builtin.debug:
+    msg:
+      - CORE40_CF_TEAM=digitalhouses
+      - "CORE40_CF_ROUTES_HTTP={{ core40_cf_queries.results[0].status | default('ERROR') }}"
+      - "CORE40_CF_ENROLLMENT_APPS_HTTP={{ core40_cf_queries.results[1].status | default('ERROR') }}"
+      - "CORE40_CF_ACCESS_POLICIES_HTTP={{ core40_cf_queries.results[2].status | default('ERROR') }}"
+      - "CORE40_CF_SERVICE_TOKENS_HTTP={{ core40_cf_queries.results[3].status | default('ERROR') }}"
+      - "CORE40_CF_DEVICE_PROFILES_HTTP={{ core40_cf_queries.results[4].status | default('ERROR') }}"
+      - "CORE40_CF_DEFAULT_INCLUDE_HTTP={{ core40_cf_queries.results[5].status | default('ERROR') }}"
+      - >-
+        CORE40_CF_HOME_PRIVATE_ROUTE={{
+          'PRESENT' if (core40_cf_queries.results[0].status | default(0) == 200
+             and (core40_cf_queries.results[0].json.result | default([])
+                  | selectattr('network', 'equalto', '192.168.11.223/32') | list | length) > 0)
+          else 'NOT_CONFIRMED' }}
+      - >-
+        CORE40_CF_WARP_ENROLLMENT_APP={{
+          'PRESENT' if (core40_cf_queries.results[1].status | default(0) == 200
+            and (core40_cf_queries.results[1].json.result | default([])
+                 | selectattr('type', 'equalto', 'warp') | list | length) > 0)
+          else 'NOT_CONFIRMED' }}
+      - >-
+        CORE40_CF_SERVICE_TOKEN_DH_CORE={{
+          'PRESENT' if (core40_cf_queries.results[3].status | default(0) == 200
+            and (core40_cf_queries.results[3].json.result | default([])
+                 | selectattr('name', 'equalto', 'dh-core-pbs') | list | length) > 0)
+          else 'NOT_CONFIRMED' }}
+      - CORE40_CF_ENROLLMENT_POLICY_AND_SPLIT_TUNNEL=REQUIRES_VERIFICATION

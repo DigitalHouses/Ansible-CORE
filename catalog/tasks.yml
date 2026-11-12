@@ -25,6 +25,7 @@ tasks:
         values:
           - {name: "Проверить инфраструктуру без изменений", value: audit}
           - {name: "Подготовить ZFS dataset и datastore pbs-core", value: prepare}
+          - {name: "Проверить Cloudflare policy, private route и client (без изменений)", value: cf-audit}
   - name: 50-Central Backup
     playbook: playbooks/core-backup.yml
     description: "Read-only audit of central backup configuration; Remote/Pull Sync/E2E follow after HOME readiness"
