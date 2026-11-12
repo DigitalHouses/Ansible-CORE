@@ -1,0 +1,180 @@
+---
+# CORE40 | Install the official Debian 13 Cloudflare One Client package only.
+# No MDM credentials, enrollment, route changes, DNS settings or HOME changes.
+- name: Inspect installed Cloudflare One package before any modifications
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, dpkg-query, -W, cloudflare-warp]
+  register: core40_cf_pkg_initial
+  changed_when: false
+
+- name: Validate package inspection response
+  ansible.builtin.assert:
+    that:
+      - (core40_cf_pkg_initial.stdout | from_json).exitcode | int in [0, 1]
+    fail_msg: CORE40_CF_PACKAGE_INSPECTION_FAILED
+
+- name: Verify no unmanaged existing enrollment configuration
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, test, -e, /var/lib/cloudflare-warp/mdm.xml]
+  register: core40_cf_existing_mdm
+  changed_when: false
+
+- name: Refuse automatic enrollment or overwrite of previous credentials
+  ansible.builtin.assert:
+    that:
+      - (core40_cf_existing_mdm.stdout | from_json).exitcode | int == 1
+    fail_msg: CORE40_CF_EXISTING_ENROLLMENT_REFUSED
+  when: (core40_cf_pkg_initial.stdout | from_json).exitcode | int == 1
+
+- name: Prepare Cloudflare package source only when package is missing
+  when: (core40_cf_pkg_initial.stdout | from_json).exitcode | int == 1
+  block:
+    - name: Check for existing Cloudflare vendor repository
+      ansible.builtin.command:
+        argv: [qm, guest, exec, '2243', --, test, -e, /etc/apt/sources.list.d/cloudflare-client.list]
+      register: core40_cf_repo_present
+      changed_when: false
+
+    - name: Read existing Cloudflare apt configuration if present
+      ansible.builtin.command:
+        argv: [qm, guest, exec, '2243', --, cat, /etc/apt/sources.list.d/cloudflare-client.list]
+      register: core40_cf_repo_content
+      changed_when: false
+      when: (core40_cf_repo_present.stdout | from_json).exitcode | int == 0
+
+    - name: Refuse to overwrite a foreign Cloudflare apt configuration
+      ansible.builtin.assert:
+        that:
+          - >-
+            (core40_cf_repo_present.stdout | from_json).exitcode | int == 1
+            or ((core40_cf_repo_content.stdout | from_json)['out-data'] | trim) ==
+            'deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ trixie main'
+        fail_msg: CORE40_CF_REPO_ALREADY_CONFIGURED_REVIEW_MANUALLY
+
+    - name: Download official Cloudflare signing key to temporary guest path
+      ansible.builtin.command:
+        argv:
+          - qm
+          - guest
+          - exec
+          - '2243'
+          - --
+          - curl
+          - -fsSL
+          - https://pkg.cloudflareclient.com/pubkey.gpg
+          - -o
+          - /tmp/dh-core-cloudflare-pubkey.gpg
+      register: core40_cf_key_fetch
+      changed_when: true
+      failed_when: (core40_cf_key_fetch.stdout | from_json).exitcode | int != 0
+      when: (core40_cf_repo_present.stdout | from_json).exitcode | int == 1
+
+    - name: Convert vendor key into apt keyring
+      ansible.builtin.command:
+        argv:
+          - qm
+          - guest
+          - exec
+          - '2243'
+          - --
+          - gpg
+          - --batch
+          - --yes
+          - --dearmor
+          - --output
+          - /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
+          - /tmp/dh-core-cloudflare-pubkey.gpg
+      register: core40_cf_keyring
+      changed_when: true
+      failed_when: (core40_cf_keyring.stdout | from_json).exitcode | int != 0
+      when: (core40_cf_repo_present.stdout | from_json).exitcode | int == 1
+
+    - name: Remove temporary vendor key from guest
+      ansible.builtin.command:
+        argv: [qm, guest, exec, '2243', --, rm, -f, /tmp/dh-core-cloudflare-pubkey.gpg]
+      register: core40_cf_key_cleanup
+      changed_when: true
+      failed_when: (core40_cf_key_cleanup.stdout | from_json).exitcode | int != 0
+      when: (core40_cf_repo_present.stdout | from_json).exitcode | int == 1
+
+    - name: Configure signed Cloudflare Debian trixie apt repository
+      ansible.builtin.command:
+        argv:
+          - qm
+          - guest
+          - exec
+          - '2243'
+          - --
+          - /bin/sh
+          - -c
+          - >-
+            printf '%s\n' 'deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ trixie main'
+            > /etc/apt/sources.list.d/cloudflare-client.list
+      register: core40_cf_repo_write
+      changed_when: true
+      failed_when: (core40_cf_repo_write.stdout | from_json).exitcode | int != 0
+      when: (core40_cf_repo_present.stdout | from_json).exitcode | int == 1
+
+    - name: Refresh native apt metadata without upgrading installed packages
+      ansible.builtin.command:
+        argv: [qm, guest, exec, '2243', --, apt-get, update]
+      register: core40_cf_apt_update
+      changed_when: true
+      failed_when: (core40_cf_apt_update.stdout | from_json).exitcode | int != 0
+      no_log: true
+
+    - name: Install official Cloudflare One Client package without enrollment
+      ansible.builtin.command:
+        argv: [qm, guest, exec, '2243', --, apt-get, install, '-y', cloudflare-warp]
+      register: core40_cf_apt_install
+      changed_when: true
+      failed_when: (core40_cf_apt_install.stdout | from_json).exitcode | int != 0
+      no_log: true
+
+- name: Confirm package is installed after operation
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, dpkg-query, -W, cloudflare-warp]
+  register: core40_cf_pkg_final
+  changed_when: false
+
+- name: Require installed Cloudflare package
+  ansible.builtin.assert:
+    that: (core40_cf_pkg_final.stdout | from_json).exitcode | int == 0
+    fail_msg: CORE40_CF_PACKAGE_NOT_INSTALLED
+
+- name: Verify PBS service stays available after package installation
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, systemctl, is-active, proxmox-backup-proxy]
+  register: core40_cf_pbs_after
+  changed_when: false
+
+- name: Require PBS proxy stays active
+  ansible.builtin.assert:
+    that:
+      - (core40_cf_pbs_after.stdout | from_json).exitcode | int == 0
+      - ((core40_cf_pbs_after.stdout | from_json)['out-data'] | trim) == 'active'
+    fail_msg: CORE40_CF_PBS_SERVICE_CHANGED
+
+- name: Verify no route was changed to HOME PBS
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, ip, -4, route, get, '192.168.11.223']
+  register: core40_cf_route_after
+  changed_when: false
+
+- name: Refuse unexpected network takeover before enrollment
+  ansible.builtin.assert:
+    that:
+      - (core40_cf_route_after.stdout | from_json).exitcode | int == 0
+      - >-
+        ' dev eth0 ' in
+        (' ' ~ ((core40_cf_route_after.stdout | from_json)['out-data'] | trim) ~ ' ')
+    fail_msg: CORE40_CF_NETWORK_ROUTE_CHANGED_UNEXPECTEDLY
+
+- name: Report client package ready for later enrollment
+  ansible.builtin.debug:
+    msg:
+      - CORE40_CF_PACKAGE=INSTALLED
+      - CORE40_CF_ENROLLMENT=NOT_ATTEMPTED
+      - CORE40_CF_ROUTING=UNCHANGED
+      - CORE40_CF_PBS_PROXY=ACTIVE
+      - CORE40_CF_NEXT=Verify_Service_Auth_and_Split_Tunnels_before_enrollment
