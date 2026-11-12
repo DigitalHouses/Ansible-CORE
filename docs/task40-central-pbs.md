@@ -443,3 +443,44 @@ The temporary failure was not a HOME or PBS backup failure.
 
 Cloudflare reference:
 https://developers.cloudflare.com/cloudflare-one/team-and-resources/devices/cloudflare-one-client/troubleshooting/client-errors/
+
+### CORE safe acceptance and remaining gate (12.11.2026)
+
+- After recovery from optional posture-only connection test:
+  CORE №00 Job #42 `success`, removed the experimental action;
+  working Cloudflare registration and MDM remained unchanged.
+- CORE №40 `prepare` Job #43 `success`, `changed=0 failed=0`;
+  verified healthy `serzhan-pool`, exact ZFS dataset mountpoint,
+  `atime=on`, correct `pbs-core` datastore and untouched `pbs-serzhan`.
+  No creation, deletion, migration or Sync Job was needed.
+- CORE №50 read-only audit Job #44 `success`, `changed=0 failed=0`.
+  `CORE50_REMOTE_COUNT=0`, `CORE50_PULL_SYNC_JOB_COUNT=0`,
+  `CORE50_BACKUP_E2E=NOT_RUN`. No source backups have been pulled.
+- CORE №40 `cf-audit` Job #45 `success`, `changed=0 failed=0`.
+  Service Auth policy `READY`, but Cloudflare private route
+  `192.168.11.223/32` `NOT_CONFIRMED` / no route in account.
+  Device profile and Split Tunnel API still `403`. Direct LAN
+  `dev eth0` remains and is **not** accepted as Cloudflare E2E.
+
+**External prerequisites before any WARP traffic-mode change:**
+
+1. HOME №70 must expose **only** `192.168.11.223/32` using the
+   existing HOME PVE cloudflared tunnel. It owns the HOME route;
+   do not change HOME from this CORE task.
+2. CORE must gain a dedicated Cloudflare device profile with
+   Split Tunnels **Include** and the remote HOME PBS /32 route,
+   applied only to CORE PBS device. Do not change the shared
+   default/other homes' profiles. The existing CORE №05 CF API
+   token has insufficient rights (`GET devices/policies: 403`).
+   Official device-profile API requires account permission
+   **`Zero Trust Write`**. Enter a suitably scoped replacement
+   API token through existing CORE Semaphore №05 (no new secret
+   store, no plaintext in DEV/repo).
+3. Then add guarded CORE №40 traffic-mode activation with checks
+   for exact HOME route, effective Include profile and safe
+   management interface, plus network/PBS rollback on failure.
+   Only after end-to-end Cloudflare route is proven can CORE
+   №50 configure PBS Remote, Pull Sync, retention, Verify and
+   a real restore test.
+
+No custom Python was added; this is still native Ansible only.
