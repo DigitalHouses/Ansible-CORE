@@ -134,6 +134,17 @@
           else 'NOT_CONFIRMED' }}
       - "CORE40_CF_DIRECT_SERVICE_TOKEN_HTTP={{ core40_cf_direct_token.status | default('NOT_CHECKED') }}"
       - >-
+        CORE40_CF_POSTURE_ENROLLMENT_POLICY={{
+          'READY' if (core40_cf_enrollment_policies | length == 1
+           and (core40_cf_policy_token_rules | default([]) | length) == 1
+           and core40_cf_warp_apps | length == 1
+           and core40_cf_enrollment_app_policies.status | default(0) == 200
+           and (core40_cf_enrollment_app_policies.json.result | default([])
+                | selectattr('id', 'equalto', core40_cf_enrollment_policies[0].id)
+                | list | length) == 1
+           and core40_cf_direct_token.status | default(0) in [200, 403])
+          else 'NOT_READY' }}
+      - >-
         CORE40_CF_DIRECT_SERVICE_TOKEN_MATCH={{
           'YES' if (core40_cf_direct_token.status | default(0) == 200
              and (core40_cf_direct_token.json.result.name | default('')) == 'dh-core-pbs'
@@ -164,26 +175,30 @@
           else 'NOT_CONFIRMED' }}
       - CORE40_CF_ENROLLMENT_POLICY_AND_SPLIT_TUNNEL=REQUIRES_VERIFICATION
 
-- name: Refuse registration if Cloudflare cannot confirm token and Service Auth policy
+- name: Require exact Service Auth policy attached to WARP device enrollment
   ansible.builtin.assert:
     that:
       - core40_cf_queries.results[1].status | default(0) == 200
-      - >-
-        (core40_cf_queries.results[1].json.result | default([])
-        | selectattr('type', 'equalto', 'warp') | list | length) > 0
-      - core40_cf_queries.results[3].status | default(0) == 200
-      - >-
-        (core40_cf_queries.results[3].json.result | default([])
-        | selectattr('name', 'equalto', 'dh-core-pbs') | list | length) == 1
+      - core40_cf_warp_apps | length == 1
       - core40_cf_queries.results[2].status | default(0) == 200
+      - core40_cf_enrollment_policies | length == 1
+      - core40_cf_policy_token_rules | default([]) | length == 1
+      - core40_cf_enrollment_app_policies.status | default(0) == 200
       - >-
-        (core40_cf_queries.results[2].json.result | default([])
-        | selectattr('decision', 'equalto', 'non_identity') | list | length) > 0
+        (core40_cf_enrollment_app_policies.json.result | default([])
+        | selectattr('id', 'equalto', core40_cf_enrollment_policies[0].id)
+        | list | length) == 1
+      - core40_cf_direct_token.status | default(0) in [200, 403]
+      - >-
+        core40_cf_direct_token.status | default(0) == 403
+        or ((core40_cf_direct_token.json.result.name | default('')) == 'dh-core-pbs'
+            and (core40_cf_direct_token.json.result.client_id | default('')) ==
+                (DH_CLOUDFLARE_ENROLL_CLIENT_ID | default('')))
     fail_msg: >-
-      CORE40_CF_ENROLLMENT_NOT_READY:
-      Cloudflare account selected by digitalhouses.vip does not expose the
-      dh-core-pbs Service Token and a Service Auth policy.
-      Check the Zero Trust account and ensure the Service Auth policy is
-      attached to Device enrollment permissions.
+      CORE40_CF_ENROLLMENT_POLICY_NOT_READY: expected dh-core-pbs-enrollment
+      Service Auth policy must be attached to WARP enrollment and reference
+      exactly one service token. If direct token read is allowed, its
+      Client ID must match the native Semaphore credential.
       No secrets were written to the PBS VM.
   when: core40_action == 'cf-register'
+  no_log: true

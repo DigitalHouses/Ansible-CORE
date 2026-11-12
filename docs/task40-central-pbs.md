@@ -369,3 +369,28 @@ Device enrollment permissions still needs to be confirmed in Cloudflare
 Dashboard. The private route and Device Profiles are not required
 for initial posture-only enrollment, but are mandatory before
 traffic tunneling.
+
+### Validation after user saved Device enrollment permissions (12.11.2026)
+
+CORE №40 `cf-audit` Job #36 confirmed that the new Service Auth policy
+is visible. Enhanced read-only Job #37 confirmed:
+
+- WARP device enrollment application exists (exactly one).
+- Reusable policy `dh-core-pbs-enrollment` exists (exactly one) with
+  `decision=non_identity` and exactly one Service Token include rule.
+- The expected Service Auth policy **is attached** to WARP enrollment
+  application (`GET .../access/apps/{id}/policies`: HTTP 200).
+- Direct GET for its referenced Service Token returns HTTP **403**:
+  current CORE API token does not have `Access: Service Tokens Read`.
+  The Service Token list returns 0 under the same read restriction.
+  This does **not** show the token is absent; it exists in the user's
+  Cloudflare dashboard, where its state is Enabled.
+- Private route to HOME PBS is a *separate* uncompleted HOME #70 requirement.
+
+Updated CORE №40 `cf-register` preflight to require an exact Service Auth
+policy name, `non_identity` decision, exactly one `service_token` rule,
+and attachment to WARP enrollment. An HTTP 403 from read-only token
+metadata is acceptable; on HTTP 200, it also verifies its name and
+Client ID against Semaphore №05. No ToS acceptance or registration has
+been performed: the operator must explicitly select `cf-register` and
+`DH_CORE40_CF_ACCEPT_TOS=yes` via Semaphore Survey.
