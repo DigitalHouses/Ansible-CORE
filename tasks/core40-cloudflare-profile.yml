@@ -24,6 +24,7 @@
       identity.service_token_uuid == "{{ core40_cf_policy_token_rules[0].service_token.token_id }}"
     core40_cf_profile_existing: >-
       {{ core40_cf_queries.results[4].json.result | default([])
+         | selectattr('name', 'defined')
          | selectattr('name', 'equalto', 'dh-core-pbs-private') | list }}
   no_log: true
 
