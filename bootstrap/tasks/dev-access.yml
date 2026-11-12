@@ -162,7 +162,7 @@
           Cookie: "{{ dev_login.cookies_string }}"
         body_format: json
         body:
-          name: ansible-3-local-dev
+          name: ansible-core-local-dev
         status_code: 201
       register: dev_new_token
       when: not dev_token_file.stat.exists

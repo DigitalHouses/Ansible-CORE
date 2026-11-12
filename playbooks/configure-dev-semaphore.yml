@@ -10,15 +10,6 @@
     - /etc/digitalhouses/pve.yml
   vars:
     semaphore_api: http://127.0.0.1/api
-    sem_cf_action: "{{ DH_SEMAPHORE_CF_ACTION | default('skip', true) }}"
-    sem_cf_token: "{{ DH_CLOUDFLARE_API_TOKEN | default('', true) }}"
-    sem_cf_api: https://api.cloudflare.com/client/v4
-    sem_cf_tunnel_name: "{{ dev_site_id }}"
-    sem_cf_hostname: "{{ dev_site_id }}-pve-semaphore.digitalhouses.vip"
-    sem_cf_legacy_hostname: "{{ dev_site_id }}-semaphore.digitalhouses.vip"
-    sem_cf_headers:
-      Authorization: "Bearer {{ sem_cf_token }}"
-      Accept: application/json
   tasks:
     - name: Read this Runner's site identity
       ansible.builtin.slurp:
@@ -76,12 +67,6 @@
       register: dev_transfer_config
       no_log: true
 
-    - name: Read the configured local HTTP endpoint without exposing configuration secrets
-      ansible.builtin.slurp:
-        src: /etc/semaphore/config.json
-      register: dev_server_config
-      no_log: true
-
     - name: Read Runner management address independently of Semaphore browser URL
       ansible.builtin.command:
         argv: [/usr/sbin/ip, -4, -o, addr, show, dev, eth0]
@@ -99,58 +84,6 @@
     - name: Keep the actual site Runner IPv4 for DEV API smoke tests
       ansible.builtin.set_fact:
         dev_runner_ip: "{{ dev_runner_management.stdout.split('inet ')[1].split('/')[0] }}"
-
-    - name: Validate the requested Semaphore Cloudflare action
-      ansible.builtin.assert:
-        that: sem_cf_action in ['skip', 'audit', 'apply']
-        fail_msg: "Invalid task 08 Cloudflare action"
-
-    - name: Refuse creation of the removed Semaphore-only Tunnel
-      ansible.builtin.assert:
-        that: sem_cf_action != 'apply'
-        fail_msg: >-
-          Semaphore uses the existing site Tunnel {{ dev_site_id }}.
-          Do not create another connector or Tunnel from task 08.
-
-    - name: Audit existing Semaphore public Access without changing Tunnel
-      ansible.builtin.include_tasks: ../tasks/semaphore-cloudflare.yml
-      when: sem_cf_action == 'audit'
-
-    - name: Configure public Semaphore HTML base URL after verified Cloudflare Apply
-      ansible.builtin.copy:
-        dest: /etc/semaphore/config.json
-        owner: root
-        group: semaphore
-        mode: '0640'
-        content: |
-          {{ ((dev_server_config.content | b64decode | from_json)
-             | combine({'web_host': ''})) | to_nice_json }}
-      register: sem_public_web_host_config
-      no_log: true
-      when: sem_cf_action == 'apply'
-
-    - name: Read current Semaphore HTML after a prior Cloudflare deployment
-      ansible.builtin.uri:
-        url: http://127.0.0.1/
-        validate_certs: true
-        use_proxy: false
-        status_code: 200
-        return_content: true
-        timeout: 15
-      register: sem_public_html
-      changed_when: false
-      when:
-        - sem_cf_action == 'apply'
-        - not sem_public_web_host_config.changed
-
-    - name: Require origin-relative browser base for both LAN and Cloudflare
-      ansible.builtin.assert:
-        that:
-          - sem_public_html.content.find('<base href="/">') >= 0
-        fail_msg: "Semaphore HTML still uses an incorrect browser base URL"
-      when:
-        - sem_cf_action == 'apply'
-        - not sem_public_web_host_config.changed
 
     - name: Register the existing pinned PVE SSH connection
       ansible.builtin.add_host:
@@ -174,7 +107,7 @@
   vars:
     dev_ctid: '1254'
     dev_ip_cidr: 192.168.11.254/24
-    dev_dir: /home/dev/.config/ansible-3
+    dev_dir: /home/dev/.config/ansible-core
     dev_site_id: "{{ hostvars['runner'].dev_site_id }}"
     dev_runner_ip: "{{ hostvars['runner'].dev_runner_ip }}"
     dev_api_url: "http://{{ dev_runner_ip }}/api"
@@ -182,30 +115,3 @@
   tasks:
     - name: Use the shared transport without introducing another service
       ansible.builtin.include_tasks: ../tasks/dev-delivery.yml
-
-# The Semaphore service owns the job's systemd cgroup. Restarting it while this
-# playbook is running terminates the job; schedule the restart at the very end.
-- name: 08 - Activate the new public browser base URL after the job exits
-  hosts: runner
-  connection: local
-  become: true
-  gather_facts: false
-  tasks:
-    - name: Notify a delayed restart only after a real public URL change
-      ansible.builtin.debug:
-        msg: "Semaphore public base URL will activate after this job exits"
-      changed_when: hostvars['runner'].sem_public_web_host_config.changed | default(false)
-      notify: Queue the Semaphore restart after the running job exits
-
-  handlers:
-    - name: Queue the Semaphore restart after the running job exits
-      ansible.builtin.command:
-        argv:
-          - /usr/bin/systemd-run
-          - --collect
-          - --unit=digitalhouses-semaphore-webhost-refresh
-          - --on-active=20s
-          - /usr/bin/systemctl
-          - restart
-          - digitalhouses-semaphore.service
-      changed_when: true
