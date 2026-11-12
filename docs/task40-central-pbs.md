@@ -394,3 +394,25 @@ metadata is acceptable; on HTTP 200, it also verifies its name and
 Client ID against Semaphore №05. No ToS acceptance or registration has
 been performed: the operator must explicitly select `cf-register` and
 `DH_CORE40_CF_ACCEPT_TOS=yes` via Semaphore Survey.
+
+### CORE40 registration — executed 12.11.2026, Job #39
+
+- Operator requested ChatGPT to run №40; Semaphore Survey submitted
+  `DH_CORE40_ACTION=cf-register`, `DH_CORE40_CF_ACCEPT_TOS=yes`.
+- Semaphore Job #39 completed `success` on commit `6147ea2`:
+  runner `ok=15 changed=0 failed=0`;
+  core40_pve `ok=38 changed=2 failed=0`.
+- Cloudflare read-only Service Auth preflight passed and policy is
+  attached to WARP enrollment. Stored №05 credentials were used.
+- MDM streamed securely to VM2243, `mdm.xml` permissions `0600`.
+  `warp-cli --accept-tos registration show` confirmed organization
+  registration on the guest.
+- After registration `proxmox-backup-proxy=active`.
+  `ip -4 route get 192.168.11.223` still uses `eth0`
+  (`192.168.11.243`), no WARP traffic route was enabled.
+- Direct `warp-cli --accept-tos status` after Job #39:
+  `Disconnected / Manual Disconnection`. This is consistent with
+  `auto_connect=0`; **registered is not the same as connected**.
+- Next: HOME #70 tunnel private route and isolated CORE Include
+  Split Tunnel profile; then only enable WARP traffic forwarding
+  in a separate guarded phase. Backup/PBS sync remains task #50.
