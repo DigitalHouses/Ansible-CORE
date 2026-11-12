@@ -14,7 +14,7 @@
   ansible.builtin.assert:
     that:
       - (DH_CLOUDFLARE_API_TOKEN | default('')) | length > 0
-      - DH_CLOUDFLARE_TEAM_NAME | default('') == 'digitalhouses'
+      - lookup('ansible.builtin.env', 'DH_CLOUDFLARE_TEAM_NAME') == 'digitalhouses'
       - (DH_CLOUDFLARE_ENROLL_CLIENT_ID | default('')) | length > 0
       - (DH_CLOUDFLARE_ENROLL_CLIENT_SECRET | default('')) | length > 0
     fail_msg: CORE40_CLOUDFLARE_CREDENTIALS_MISSING_FROM_TASK05
