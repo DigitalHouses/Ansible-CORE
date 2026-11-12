@@ -30,6 +30,7 @@ tasks:
           - {name: "Зарегистрировать Cloudflare One Client (Posture only, без изменения маршрутов)", value: cf-register}
           - {name: "Создать отдельный неактивный CORE PBS Device Profile (Include HOME /32)", value: cf-profile-prepare}
           - {name: "Проверить HOME №70 и WARP транспорт CORE без изменений", value: cf-transport-audit}
+          - {name: "Включить WARP Traffic only CORE→HOME PBS и проверить HTTPS с автооткатом", value: cf-transport-enable}
       - name: DH_CORE40_CF_ACCEPT_TOS
         title: "Согласие с Cloudflare One Client Terms of Service (только для регистрации)"
         type: enum

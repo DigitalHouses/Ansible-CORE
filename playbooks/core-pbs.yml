@@ -17,7 +17,7 @@
     - name: Refuse execution from a HOME or unexpected CORE runner
       ansible.builtin.assert:
         that:
-          - core40_action in ['audit', 'prepare', 'cf-audit', 'cf-install', 'cf-register', 'cf-profile-prepare', 'cf-transport-audit']
+          - core40_action in ['audit', 'prepare', 'cf-audit', 'cf-install', 'cf-register', 'cf-profile-prepare', 'cf-transport-audit', 'cf-transport-enable']
           - core40_accept_tos in ['no', 'yes']
           - core40_site == 'dh-core'
           - core40_profile == 'core'
@@ -34,7 +34,7 @@
 
     - name: Inspect CORE Cloudflare readiness before audit or enrollment-profile preparation
       ansible.builtin.include_tasks: ../tasks/core40-cloudflare-readiness.yml
-      when: core40_action in ['cf-audit', 'cf-register', 'cf-profile-prepare', 'cf-transport-audit']
+      when: core40_action in ['cf-audit', 'cf-register', 'cf-profile-prepare', 'cf-transport-audit', 'cf-transport-enable']
 
     - name: Prepare isolated inactive CORE PBS device profile
       ansible.builtin.include_tasks: ../tasks/core40-cloudflare-profile.yml
@@ -61,7 +61,11 @@
 
     - name: Verify HOME #70 private route and CORE WARP profile without changes
       ansible.builtin.include_tasks: ../tasks/core40-cloudflare-transport-audit.yml
-      when: core40_action == 'cf-transport-audit'
+      when: core40_action in ['cf-transport-audit', 'cf-transport-enable']
+
+    - name: Enable only verified WARP transport and test real HOME PBS HTTPS with automatic rollback
+      ansible.builtin.include_tasks: ../tasks/core40-cloudflare-transport-enable.yml
+      when: core40_action == 'cf-transport-enable'
 
 - name: "40 | Audit central PBS target without touching existing backups"
   hosts: core40_pve_group

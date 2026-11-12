@@ -1,0 +1,434 @@
+---
+# CORE40: activate only the pinned HOME PBS /32 WARP transport.
+# All guest operations use PVE QEMU Guest Agent, never the changing guest network.
+# Any failure reverts MDM mode, disconnects WARP and disables only our profile.
+- name: Require exact route and isolated pre-existing custom profile
+  ansible.builtin.assert:
+    that:
+      - core40_transport_home_routes | length == 1
+      - core40_transport_home_routes[0].id == 'eebd7ec3-e1dd-46eb-95e7-9f6a85f16905'
+      - core40_transport_home_routes[0].tunnel_id == '6a04d9cd-0b17-48f3-8366-9f86ea08cb24'
+      - core40_transport_profiles | length == 1
+      - not (core40_transport_profiles[0].enabled | bool)
+      - core40_transport_profiles[0].match == core40_transport_expected_match
+      - (core40_transport_include_raw.json.result | length) == 1
+      - core40_transport_include_raw.json.result[0].address == '192.168.11.223/32'
+      - (DH_CLOUDFLARE_ENROLL_CLIENT_ID | default('')) | length > 0
+      - (DH_CLOUDFLARE_ENROLL_CLIENT_SECRET | default('')) | length > 0
+    fail_msg: CORE40_CF_TRANSPORT_PRECHECK_FAILED_NO_CHANGES
+  no_log: true
+
+- name: Construct existing and desired MDM configurations in Ansible memory
+  ansible.builtin.set_fact:
+    core40_transport_mdm_original: |
+      <dict>
+        <key>auth_client_id</key>
+        <string>{{ DH_CLOUDFLARE_ENROLL_CLIENT_ID | e }}</string>
+        <key>auth_client_secret</key>
+        <string>{{ DH_CLOUDFLARE_ENROLL_CLIENT_SECRET | e }}</string>
+        <key>auto_connect</key>
+        <integer>0</integer>
+        <key>onboarding</key>
+        <false/>
+        <key>organization</key>
+        <string>{{ lookup('ansible.builtin.env', 'DH_CLOUDFLARE_TEAM_NAME') | e }}</string>
+        <key>service_mode</key>
+        <string>postureonly</string>
+      </dict>
+  no_log: true
+
+- name: Construct traffic-only mode while keeping auto-connect off
+  ansible.builtin.set_fact:
+    core40_transport_mdm_desired: >-
+      {{ core40_transport_mdm_original
+         | replace('<string>postureonly</string>', '<string>tunnelonly</string>') }}
+  no_log: true
+
+- name: Check existing CORE PBS MDM file hash without reading credentials
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, sha256sum, /var/lib/cloudflare-warp/mdm.xml]
+  delegate_to: core40_pve
+  register: core40_transport_mdm_digest
+  changed_when: false
+  no_log: true
+
+- name: Require exact task 05 managed original MDM configuration
+  ansible.builtin.assert:
+    that:
+      - (core40_transport_mdm_digest.stdout | from_json).exitcode | int == 0
+      - >-
+        ((core40_transport_mdm_digest.stdout | from_json)['out-data'].split()[0]) ==
+        (core40_transport_mdm_original | hash('sha256'))
+    fail_msg: CORE40_CF_MDM_DIFFERENT_FROM_TASK05_REFUSE_OVERWRITE
+  no_log: true
+
+- name: Read management IPv4 route before touching WARP
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, ip, -4, route, get, '192.168.11.240']
+  delegate_to: core40_pve
+  register: core40_transport_management_before
+  changed_when: false
+
+- name: Read default Internet route before touching WARP
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, ip, -4, route, get, '1.1.1.1']
+  delegate_to: core40_pve
+  register: core40_transport_internet_before
+  changed_when: false
+
+- name: Read DNS config digest before touching WARP
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, sha256sum, /etc/resolv.conf]
+  delegate_to: core40_pve
+  register: core40_transport_dns_before
+  changed_when: false
+
+- name: Require guest management and Internet routes are physical
+  ansible.builtin.assert:
+    that:
+      - (core40_transport_management_before.stdout | from_json).exitcode | int == 0
+      - >-
+        ' dev eth0 ' in (' ' ~
+        ((core40_transport_management_before.stdout | from_json)['out-data'] | trim) ~ ' ')
+      - (core40_transport_internet_before.stdout | from_json).exitcode | int == 0
+      - >-
+        ' dev eth0 ' in (' ' ~
+        ((core40_transport_internet_before.stdout | from_json)['out-data'] | trim) ~ ' ')
+      - (core40_transport_dns_before.stdout | from_json).exitcode | int == 0
+    fail_msg: CORE40_CF_MANAGEMENT_NETWORK_NOT_SAFE
+
+- name: Activate only isolated CORE WARP profile and attempt private transport
+  block:
+    - name: Enable only the dedicated CORE WARP profile in Cloudflare
+      ansible.builtin.uri:
+        url: "https://api.cloudflare.com/client/v4/accounts/{{ core40_cf_account_id }}/devices/policy/{{ core40_transport_profiles[0].policy_id }}"
+        method: PATCH
+        headers:
+          Authorization: "Bearer {{ DH_CLOUDFLARE_API_TOKEN }}"
+        body_format: json
+        body:
+          enabled: true
+          service_mode_v2:
+            mode: tunnel_only
+        status_code: 200
+        use_proxy: false
+        timeout: 15
+      register: core40_transport_profile_enable
+      changed_when: true
+      no_log: true
+
+    - name: Require Cloudflare accepted isolated profile activation
+      ansible.builtin.assert:
+        that: core40_transport_profile_enable.json.success | default(false)
+        fail_msg: CORE40_CF_PROFILE_ENABLE_REJECTED
+      no_log: true
+
+    - name: Re-read isolated profile after activation
+      ansible.builtin.uri:
+        url: "https://api.cloudflare.com/client/v4/accounts/{{ core40_cf_account_id }}/devices/policy/{{ core40_transport_profiles[0].policy_id }}"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ DH_CLOUDFLARE_API_TOKEN }}"
+        status_code: 200
+        use_proxy: false
+        timeout: 12
+      register: core40_transport_active_profile
+      changed_when: false
+      no_log: true
+
+    - name: Require exact enabled profile and Traffic only service mode
+      ansible.builtin.assert:
+        that:
+          - core40_transport_active_profile.json.success | default(false)
+          - core40_transport_active_profile.json.result.enabled | bool
+          - core40_transport_active_profile.json.result.name == 'dh-core-pbs-private'
+          - core40_transport_active_profile.json.result.match == core40_transport_expected_match
+          - core40_transport_active_profile.json.result.service_mode_v2.mode == 'tunnel_only'
+        fail_msg: CORE40_CF_PROFILE_READBACK_UNEXPECTED
+      no_log: true
+
+    - name: Set guest MDM to Traffic only without touching stored credentials
+      ansible.builtin.command:
+        argv:
+          - qm
+          - guest
+          - exec
+          - '2243'
+          - --pass-stdin
+          - '1'
+          - --timeout
+          - '60'
+          - --
+          - /bin/sh
+          - -c
+          - 'umask 077; cat > /var/lib/cloudflare-warp/mdm.xml'
+        stdin: "{{ core40_transport_mdm_desired }}"
+        stdin_add_newline: false
+      delegate_to: core40_pve
+      register: core40_transport_mdm_write
+      changed_when: true
+      failed_when: (core40_transport_mdm_write.stdout | from_json).exitcode | int != 0
+      no_log: true
+
+    - name: Restart WARP service while auto-connect is disabled
+      ansible.builtin.command:
+        argv: [qm, guest, exec, '2243', --timeout, '90', --, systemctl, restart, warp-svc]
+      delegate_to: core40_pve
+      register: core40_transport_restart
+      changed_when: true
+      failed_when: (core40_transport_restart.stdout | from_json).exitcode | int != 0
+
+    - name: Wait until CORE's dedicated profile reaches registered guest before connecting
+      ansible.builtin.command:
+        argv: [qm, guest, exec, '2243', --, warp-cli, --accept-tos, settings]
+      delegate_to: core40_pve
+      register: core40_transport_guest_policy
+      changed_when: false
+      failed_when: false
+      retries: 12
+      delay: 5
+      until: >-
+        core40_transport_guest_policy.rc == 0
+        and (core40_transport_guest_policy.stdout | from_json).get('exitcode', 1) == 0
+        and ('Mode: TunnelOnly' in
+             (core40_transport_guest_policy.stdout | from_json).get('out-data', ''))
+        and ('Profile ID: ' ~ core40_transport_profiles[0].policy_id) in
+             (core40_transport_guest_policy.stdout | from_json).get('out-data', '')
+      no_log: true
+
+    - name: Verify dedicated Include profile is effective before connecting
+      ansible.builtin.assert:
+        that:
+          - (core40_transport_guest_policy.stdout | from_json).exitcode | int == 0
+          - >-
+            ('Profile ID: ' ~ core40_transport_profiles[0].policy_id) in
+            (core40_transport_guest_policy.stdout | from_json)['out-data']
+          - >-
+            'Mode: TunnelOnly' in
+            (core40_transport_guest_policy.stdout | from_json)['out-data']
+          - >-
+            'Include mode' in
+            (core40_transport_guest_policy.stdout | from_json)['out-data']
+          - >-
+            '192.168.11.223/32' in
+            (core40_transport_guest_policy.stdout | from_json)['out-data']
+        fail_msg: CORE40_CF_EFFECTIVE_PROFILE_NOT_ISOLATED_NO_CONNECT
+      no_log: true
+
+    - name: Connect WARP only after verifying exact safe client profile
+      ansible.builtin.command:
+        argv: [qm, guest, exec, '2243', --timeout, '90', --, warp-cli, --accept-tos, connect]
+      delegate_to: core40_pve
+      register: core40_transport_connect
+      changed_when: true
+      failed_when: >-
+        core40_transport_connect.rc != 0 or
+        (core40_transport_connect.stdout | from_json).get('exitcode', 1) | int != 0
+      no_log: true
+
+    - name: Wait for connected Cloudflare WARP transport
+      ansible.builtin.command:
+        argv: [qm, guest, exec, '2243', --timeout, '60', --, warp-cli, --accept-tos, status]
+      delegate_to: core40_pve
+      register: core40_transport_connected
+      changed_when: false
+      failed_when: false
+      retries: 8
+      delay: 4
+      until: >-
+        core40_transport_connected.rc == 0
+        and (core40_transport_connected.stdout | from_json).get('exitcode', 1) == 0
+        and 'Status update: Connected' in
+           (core40_transport_connected.stdout | from_json).get('out-data', '')
+      no_log: true
+
+    - name: Require explicit connected status from Cloudflare client
+      ansible.builtin.assert:
+        that:
+          - core40_transport_connected.rc == 0
+          - (core40_transport_connected.stdout | from_json).exitcode | int == 0
+          - >-
+            'Status update: Connected' in
+            (core40_transport_connected.stdout | from_json)['out-data']
+        fail_msg: CORE40_CF_WARP_NOT_CONNECTED_ROLLBACK
+      no_log: true
+
+    - name: Read route to HOME PBS through WARP
+      ansible.builtin.command:
+        argv: [qm, guest, exec, '2243', --, ip, -4, route, get, '192.168.11.223']
+      delegate_to: core40_pve
+      register: core40_transport_home_route_after
+      changed_when: false
+
+    - name: Verify HOME destination is no longer routed directly to local eth0
+      ansible.builtin.assert:
+        that:
+          - (core40_transport_home_route_after.stdout | from_json).exitcode | int == 0
+          - >-
+            ' dev CloudflareWARP ' in (' ' ~
+            ((core40_transport_home_route_after.stdout | from_json)['out-data'] | trim) ~ ' ')
+          - >-
+            ' dev eth0 ' not in (' ' ~
+            ((core40_transport_home_route_after.stdout | from_json)['out-data'] | trim) ~ ' ')
+        fail_msg: CORE40_CF_DIRECT_LAN_ROUTE_NOT_ACCEPTED
+      no_log: true
+
+    - name: Probe actual HOME PBS HTTPS origin using WARP-selected /32 route
+      ansible.builtin.command:
+        argv:
+          - qm
+          - guest
+          - exec
+          - '2243'
+          - --timeout
+          - '35'
+          - --
+          - curl
+          - -ksS
+          - --connect-timeout
+          - '8'
+          - --max-time
+          - '20'
+          - -o
+          - /dev/null
+          - -w
+          - '%{http_code}'
+          - https://192.168.11.223:8007/
+      delegate_to: core40_pve
+      register: core40_transport_https
+      changed_when: false
+      failed_when: false
+
+    - name: Require real HTTPS 200 from HOME PBS via WARP, not LAN
+      ansible.builtin.assert:
+        that:
+          - (core40_transport_https.stdout | from_json).exitcode | int == 0
+          - ((core40_transport_https.stdout | from_json)['out-data'] | trim) == '200'
+        fail_msg: CORE40_CF_HOME_HTTPS_E2E_FAILED
+
+    - name: Verify CORE PVE management route remains physical
+      ansible.builtin.command:
+        argv: [qm, guest, exec, '2243', --, ip, -4, route, get, '192.168.11.240']
+      delegate_to: core40_pve
+      register: core40_transport_management_after
+      changed_when: false
+
+    - name: Verify Internet route remains physical
+      ansible.builtin.command:
+        argv: [qm, guest, exec, '2243', --, ip, -4, route, get, '1.1.1.1']
+      delegate_to: core40_pve
+      register: core40_transport_internet_after
+      changed_when: false
+
+    - name: Verify DNS was not modified
+      ansible.builtin.command:
+        argv: [qm, guest, exec, '2243', --, sha256sum, /etc/resolv.conf]
+      delegate_to: core40_pve
+      register: core40_transport_dns_after
+      changed_when: false
+
+    - name: Verify PBS proxy availability
+      ansible.builtin.command:
+        argv: [qm, guest, exec, '2243', --, systemctl, is-active, proxmox-backup-proxy]
+      delegate_to: core40_pve
+      register: core40_transport_pbs_after
+      changed_when: false
+
+    - name: Require exact preservation of management network, DNS and PBS
+      ansible.builtin.assert:
+        that:
+          - >-
+            (core40_transport_management_after.stdout | from_json)['out-data'] ==
+            (core40_transport_management_before.stdout | from_json)['out-data']
+          - >-
+            (core40_transport_internet_after.stdout | from_json)['out-data'] ==
+            (core40_transport_internet_before.stdout | from_json)['out-data']
+          - >-
+            (core40_transport_dns_after.stdout | from_json)['out-data'] ==
+            (core40_transport_dns_before.stdout | from_json)['out-data']
+          - (core40_transport_pbs_after.stdout | from_json).exitcode | int == 0
+          - (core40_transport_pbs_after.stdout | from_json)['out-data'] | trim == 'active'
+        fail_msg: CORE40_CF_MANAGEMENT_OR_PBS_CHANGED
+      no_log: true
+
+  rescue:
+    - name: Roll back any attempted WARP connection before restoring routes
+      ansible.builtin.command:
+        argv: [qm, guest, exec, '2243', --timeout, '45', --, warp-cli, --accept-tos, disconnect]
+      delegate_to: core40_pve
+      failed_when: false
+      changed_when: true
+      no_log: true
+
+    - name: Restore previous posture-only MDM through guest stdin
+      ansible.builtin.command:
+        argv:
+          - qm
+          - guest
+          - exec
+          - '2243'
+          - --pass-stdin
+          - '1'
+          - --timeout
+          - '60'
+          - --
+          - /bin/sh
+          - -c
+          - 'umask 077; cat > /var/lib/cloudflare-warp/mdm.xml'
+        stdin: "{{ core40_transport_mdm_original }}"
+        stdin_add_newline: false
+      delegate_to: core40_pve
+      failed_when: false
+      changed_when: true
+      no_log: true
+
+    - name: Restart WARP service in original posture-only mode
+      ansible.builtin.command:
+        argv: [qm, guest, exec, '2243', --timeout, '90', --, systemctl, restart, warp-svc]
+      delegate_to: core40_pve
+      failed_when: false
+      changed_when: true
+
+    - name: Disable only the isolated CORE device profile after failed test
+      ansible.builtin.uri:
+        url: "https://api.cloudflare.com/client/v4/accounts/{{ core40_cf_account_id }}/devices/policy/{{ core40_transport_profiles[0].policy_id }}"
+        method: PATCH
+        headers:
+          Authorization: "Bearer {{ DH_CLOUDFLARE_API_TOKEN }}"
+        body_format: json
+        body:
+          enabled: false
+        status_code: [200, 400, 403]
+        use_proxy: false
+        timeout: 15
+      register: core40_transport_rollback_profile
+      changed_when: core40_transport_rollback_profile.status == 200
+      failed_when: false
+      no_log: true
+
+    - name: Verify CORE PBS service after rollback
+      ansible.builtin.command:
+        argv: [qm, guest, exec, '2243', --, systemctl, is-active, proxmox-backup-proxy]
+      delegate_to: core40_pve
+      register: core40_transport_rollback_pbs
+      changed_when: false
+      failed_when: false
+
+    - name: Report rollback and reject incomplete transport
+      ansible.builtin.fail:
+        msg: >-
+          CORE40_CF_E2E_NOT_CONFIRMED_ROLLBACK_ATTEMPTED.
+          CORE PBS active={{ (core40_transport_rollback_pbs.stdout | default('{}') | from_json).get('out-data', 'UNKNOWN') | trim }}.
+          Cloudflare profile rollback HTTP={{ core40_transport_rollback_profile.status | default('UNKNOWN') }}.
+          No HOME PBS Remote/Sync job was configured.
+          
+- name: Report verified CORE to HOME Cloudflare transport
+  ansible.builtin.debug:
+    msg:
+      - CORE40_CF_TRANSPORT=E2E_VERIFIED
+      - CORE40_CF_HOME_ROUTE=192.168.11.223/32_via_CloudflareWARP
+      - CORE40_CF_HOME_PBS_HTTPS=200
+      - CORE40_CF_DNS=UNCHANGED
+      - CORE40_CF_MANAGEMENT=UNCHANGED
+      - CORE40_CF_PBS_PROXY=ACTIVE
+      - CORE40_CF_NEXT=CORE50_CENTRAL_BACKUP
