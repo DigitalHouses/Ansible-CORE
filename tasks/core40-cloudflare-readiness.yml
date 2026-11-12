@@ -1,5 +1,15 @@
 ---
 # Read-only API preflight for CORE Cloudflare One client; no mutation.
+- name: Identify available credential channels without exposing their values
+  ansible.builtin.debug:
+    msg:
+      - "CORE40_CF_API_VAR={{ (DH_CLOUDFLARE_API_TOKEN | default('')) | length > 0 }}"
+      - "CORE40_CF_API_ENV={{ lookup('ansible.builtin.env', 'DH_CLOUDFLARE_API_TOKEN') | length > 0 }}"
+      - "CORE40_CF_TEAM_VAR={{ (DH_CLOUDFLARE_TEAM_NAME | default('')) | length > 0 }}"
+      - "CORE40_CF_TEAM_ENV={{ lookup('ansible.builtin.env', 'DH_CLOUDFLARE_TEAM_NAME') | length > 0 }}"
+      - "CORE40_CF_CLIENT_ID_VAR={{ (DH_CLOUDFLARE_ENROLL_CLIENT_ID | default('')) | length > 0 }}"
+      - "CORE40_CF_CLIENT_SECRET_VAR={{ (DH_CLOUDFLARE_ENROLL_CLIENT_SECRET | default('')) | length > 0 }}"
+
 - name: Validate CORE Cloudflare credentials before read-only inspection
   ansible.builtin.assert:
     that:
