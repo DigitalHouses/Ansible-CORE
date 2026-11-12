@@ -416,3 +416,24 @@ been performed: the operator must explicitly select `cf-register` and
 - Next: HOME #70 tunnel private route and isolated CORE Include
   Split Tunnel profile; then only enable WARP traffic forwarding
   in a separate guarded phase. Backup/PBS sync remains task #50.
+
+### CORE40 next stage: safe Posture only connect (12.11.2026)
+
+A new `cf-posture-connect` action in task #40 uses the already
+registered Cloudflare One Client (VM2243). It checks effective
+`Mode: PostureOnly`, exact organization `digitalhouses` and
+registration before `warp-cli --accept-tos connect`. It then
+verifies `Connected`, unchanged route to HOME PBS, unchanged
+Internet route, unchanged `/etc/resolv.conf` SHA256 and active PBS
+proxy. A repeated run skips the connect command when already
+connected. This **does not** carry traffic to HOME.
+
+Live device settings before connection:
+- `Mode: PostureOnly` (locally enforced via `mdm.xml`).
+- Network policy is Cloudflare **default** Split Tunnels *Exclude*,
+  with `192.168.0.0/16` excluded. HOME `192.168.11.223/32`
+  would be excluded, so private tunnel activation must wait for a
+  dedicated CORE Include profile and HOME #70 private route.
+- Cloudflare API GET device profiles and Split Tunnel settings:
+  `403` with the CORE №05 API token. We cannot safely change
+  the profile programmatically under these permissions.

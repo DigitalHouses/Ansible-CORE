@@ -17,7 +17,7 @@
     - name: Refuse execution from a HOME or unexpected CORE runner
       ansible.builtin.assert:
         that:
-          - core40_action in ['audit', 'prepare', 'cf-audit', 'cf-install', 'cf-register']
+          - core40_action in ['audit', 'prepare', 'cf-audit', 'cf-install', 'cf-register', 'cf-posture-connect']
           - core40_accept_tos in ['no', 'yes']
           - core40_site == 'dh-core'
           - core40_profile == 'core'
@@ -117,6 +117,10 @@
     - name: Register Cloudflare One Client in safe posture-only mode only by explicit selection
       ansible.builtin.include_tasks: ../tasks/core40-cloudflare-register.yml
       when: core40_action == 'cf-register'
+
+    - name: Connect registered CORE client without WARP traffic or DNS routing
+      ansible.builtin.include_tasks: ../tasks/core40-cloudflare-posture-connect.yml
+      when: core40_action == 'cf-posture-connect'
 
     - name: Inspect route to HOME PBS from actual CORE PBS VM
       ansible.builtin.command:
