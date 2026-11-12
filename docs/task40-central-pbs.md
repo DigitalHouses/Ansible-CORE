@@ -484,3 +484,46 @@ https://developers.cloudflare.com/cloudflare-one/team-and-resources/devices/clou
    a real restore test.
 
 No custom Python was added; this is still native Ansible only.
+
+### CORE40 device profile after API permission update (12.11.2026)
+
+User edited existing Cloudflare `Ansible token` and added account
+`Zero Trust: Edit` while preserving previous permissions.
+CORE Semaphore №40 `cf-audit` Job #46 `success changed=0 failed=0`:
+GET Device Profiles and Split Tunnels changed from 403 to **200 OK**;
+Service Auth enrollment policy still READY.
+
+CORE №00 Job #47 updated the catalog. Added independent
+`cf-profile-prepare` action to №40, without changing task №05 or
+the shared Semaphore Variable Group.
+
+CORE №40 Job #48 (audit-safe attempt) failed **before modifications**
+due to an unnamed Cloudflare default-policy record. Fixed the Ansible
+filter to ignore unnamed entries; no custom Python added.
+
+CORE №40 Job #49 **success**, `changed=1 failed=0`: created dedicated
+Cloudflare WARP Device Profile `dh-core-pbs-private`:
+
+- `enabled=false` — **inactive**, cannot affect other devices yet;
+- `match=identity.service_token_uuid == "<UUID of dh-core-pbs token>"`,
+  derived from the existing `dh-core-pbs-enrollment` policy;
+- Split Tunnels mode **Include**, only `192.168.11.223/32`;
+- no alteration of shared Default profile, routes or DNS;
+- all Cloudflare API credentials remain in existing Semaphore №05.
+
+CORE №40 Job #50 repeated the same action successfully
+`changed=0 failed=0` (idempotence and API readback confirmed).
+Direct guest verification after this action: WARP
+`Disconnected / Manual Disconnection`,
+`proxmox-backup-proxy=active`,
+route to HOME PBS still `eth0` from `192.168.11.243`.
+
+**The remaining external dependency** is the HOME №70 private route
+`192.168.11.223/32` through HOME PVE cloudflared. The last CORE
+Cloudflare audit returned 0 private routes for the account.
+Do not enable the new profile or switch WARP traffic mode before the
+HOME route is independently verified and the physical CORE management
+path plus rollback are checked. CORE №50 remains downstream.
+
+Official Cloudflare reference:
+https://developers.cloudflare.com/api/resources/zero_trust/subresources/devices/subresources/policies/subresources/custom/methods/create/
