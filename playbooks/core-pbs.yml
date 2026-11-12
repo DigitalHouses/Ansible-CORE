@@ -65,7 +65,9 @@
 
     - name: Enable only verified WARP transport and test real HOME PBS HTTPS with automatic rollback
       ansible.builtin.include_tasks: ../tasks/core40-cloudflare-transport-enable.yml
-      when: core40_action == 'cf-transport-enable'
+      when:
+        - core40_action == 'cf-transport-enable'
+        - not (core40_transport_profiles[0].enabled | bool)
 
 - name: "40 | Audit central PBS target without touching existing backups"
   hosts: core40_pve_group
