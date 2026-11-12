@@ -110,4 +110,4 @@
           - "CORE50_REMOTE_COUNT={{ core50_remotes | length }}"
           - "CORE50_PULL_SYNC_JOB_COUNT={{ core50_sync_jobs | length }}"
           - CORE50_BACKUP_E2E=NOT_RUN
-          - CORE50_NEXT=Wait_for_HOME_Cloudflare_route_and_readonly_PBS_credentials
+          - CORE50_NEXT=Obtain_HOME_PBS_readonly_credentials_and_validate_TLS_fingerprint

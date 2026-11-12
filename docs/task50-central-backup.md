@@ -72,3 +72,34 @@ CORE PVE, работающую VM2243, наличие `pbs-core` и `pbs-serzhan
   дубликаты не появились.
 - Полный backup E2E (Pull Sync, Verify, восстановление) **не выполнен**:
   транспорт Cloudflare и PBS source credentials ещё не готовы.
+
+## Актуализация 13.11.2026 — транспорт CORE №40 принят
+
+Зависимость Cloudflare private route из пункта 1 **выполнена**.
+HOME №70 опубликовал `192.168.11.223/32`, CORE №40 Job #56
+подтвердил реальное `Connected` и маршрут
+`dev CloudflareWARP table 65743 src 100.96.0.6` вместо
+прямого LAN `eth0`; HTTPS `192.168.11.223:8007` вернул
+HTTP 200. Job #58 проверил автоматическое переподключение
+после рестарта службы. Job #59 — read-only active audit
+`HTTPS_200_VIA_WARP` без изменений; Job #60 — повторное
+`cf-transport-enable` `changed=0`; Job #61 —
+`cf-transport-persist` `changed=0`.
+
+Независимо из CORE VM2243 по CloudflareWARP прочитан TLS
+SHA-256 сертификата HOME PBS:
+`69:B6:A4:47:18:B2:B9:87:F3:40:2B:16:96:04:73:E9:8B:E0:5E:53:5F:DA:F2:11:EA:56:D2:ED:08:CB:54:DB`.
+Это **наблюдение с CORE**, для надёжной привязки PBS Remote
+потребуется сверить его с сертификатом на HOME PBS.
+
+№50 Semaphore Job #62 — **success, changed=0 failed=0**:
+центральный `pbs-core` существует, но
+`Remote=0`, `Pull Sync=0`, backup restore E2E не выполнялся.
+
+Осталась задача получения **read-only PBS API token от HOME** с
+доступом ко всем требуемым backup groups. Его выдача
+принадлежит Ansible-HOME, не CORE. После получения credentials
+через существующую №05 CORE (расширять по мере необходимости,
+сохраняя единый Variable Group) можно реализовать штатные
+PBS Remote, Pull Sync и настоящее E2E-восстановление.
+Секреты не публикуются в чате, Git или DEV.
