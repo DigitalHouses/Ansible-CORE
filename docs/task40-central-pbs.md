@@ -251,3 +251,14 @@ https://developers.cloudflare.com/cloudflare-one/tutorials/deploy-client-headles
 
 Документация Split Tunnels:
 https://developers.cloudflare.com/cloudflare-one/team-and-resources/devices/cloudflare-one-client/configure/route-traffic/split-tunnels/
+
+### Живая приёмка расширенного аудита №40
+
+- CORE Semaphore №40 Job #19: `success`, commit `e93e493`.
+- `core40_pve ok=12 changed=0 failed=0`;
+  `runner ok=2 changed=0 failed=0`.
+- `CORE40_SOURCE_ROUTE=DIRECT_LAN_NOT_ACCEPTED`.
+- `CORE40_CLOUDFLARE_CLIENT=NOT_INSTALLED`.
+- `CORE40_CLOUDFLARE_SERVICE=INACTIVE`.
+- PBS и HOME не изменялись. Это приёмка **аудита**, а не
+  Cloudflare-транспорта или Pull Sync.
