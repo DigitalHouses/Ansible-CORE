@@ -1,0 +1,232 @@
+---
+# CORE40: make verified Traffic-only WARP durable after service restart.
+# This runs on CORE PVE using QEMU Guest Agent; no guest SSH or HOME changes.
+- name: Require CORE task 05 enrollment credentials
+  ansible.builtin.assert:
+    that:
+      - lookup('ansible.builtin.env', 'DH_CLOUDFLARE_TEAM_NAME') == 'digitalhouses'
+      - (DH_CLOUDFLARE_ENROLL_CLIENT_ID | default('')) | length > 0
+      - (DH_CLOUDFLARE_ENROLL_CLIENT_SECRET | default('')) | length > 0
+    fail_msg: CORE40_CF_PERSIST_REQUIRES_TASK05_CREDENTIALS
+  no_log: true
+
+- name: Construct existing known-good Traffic-only configuration
+  ansible.builtin.set_fact:
+    core40_persist_old_mdm: |
+      <dict>
+        <key>auth_client_id</key>
+        <string>{{ DH_CLOUDFLARE_ENROLL_CLIENT_ID | e }}</string>
+        <key>auth_client_secret</key>
+        <string>{{ DH_CLOUDFLARE_ENROLL_CLIENT_SECRET | e }}</string>
+        <key>auto_connect</key>
+        <integer>0</integer>
+        <key>onboarding</key>
+        <false/>
+        <key>organization</key>
+        <string>{{ lookup('ansible.builtin.env', 'DH_CLOUDFLARE_TEAM_NAME') | e }}</string>
+        <key>service_mode</key>
+        <string>tunnelonly</string>
+      </dict>
+  no_log: true
+
+- name: Construct persistent configuration with one-minute reconnect
+  ansible.builtin.set_fact:
+    core40_persist_new_mdm: >-
+      {{ core40_persist_old_mdm | replace('<integer>0</integer>', '<integer>1</integer>') }}
+  no_log: true
+
+- name: Read existing MDM digest without reading secret data
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, sha256sum, /var/lib/cloudflare-warp/mdm.xml]
+  register: core40_persist_digest
+  changed_when: false
+  no_log: true
+
+- name: Require only known current or already-persistent MDM
+  ansible.builtin.assert:
+    that:
+      - (core40_persist_digest.stdout | from_json).exitcode | int == 0
+      - >-
+        ((core40_persist_digest.stdout | from_json)['out-data'].split()[0]) in
+        [(core40_persist_old_mdm | hash('sha256')), (core40_persist_new_mdm | hash('sha256'))]
+    fail_msg: CORE40_CF_PERSIST_MDM_NOT_MANAGED_BY_CORE
+  no_log: true
+
+- name: Check WARP is connected before making auto-connect persistent
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, warp-cli, --accept-tos, status]
+  register: core40_persist_before_status
+  changed_when: false
+  no_log: true
+
+- name: Check WARP mode and Include rule
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, warp-cli, --accept-tos, settings]
+  register: core40_persist_settings
+  changed_when: false
+  no_log: true
+
+- name: Check HOME PBS route goes through WARP, not LAN
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, ip, -4, route, get, '192.168.11.223']
+  register: core40_persist_route_before
+  changed_when: false
+
+- name: Snapshot system DNS digest
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, sha256sum, /etc/resolv.conf]
+  register: core40_persist_dns_before
+  changed_when: false
+
+- name: Require safe connected /32 client before restarting any service
+  ansible.builtin.assert:
+    that:
+      - (core40_persist_before_status.stdout | from_json).exitcode | int == 0
+      - "'Status update: Connected' in (core40_persist_before_status.stdout | from_json)['out-data']"
+      - "'Mode: TunnelOnly' in (core40_persist_settings.stdout | from_json)['out-data']"
+      - "'Include mode' in (core40_persist_settings.stdout | from_json)['out-data']"
+      - "'192.168.11.223/32' in (core40_persist_settings.stdout | from_json)['out-data']"
+      - >-
+        ' dev CloudflareWARP ' in (' ' ~
+        ((core40_persist_route_before.stdout | from_json)['out-data'] | trim) ~ ' ')
+    fail_msg: CORE40_CF_PERSIST_REQUIRES_VERIFIED_TRAFFIC_ONLY_TRANSPORT
+  no_log: true
+
+- name: Persist and verify WARP after restarting service
+  when: >-
+    ((core40_persist_digest.stdout | from_json)['out-data'].split()[0]) !=
+    (core40_persist_new_mdm | hash('sha256'))
+  block:
+    - name: Store persistent MDM through guest stdin
+      ansible.builtin.command:
+        argv:
+          - qm
+          - guest
+          - exec
+          - '2243'
+          - --pass-stdin
+          - '1'
+          - --timeout
+          - '60'
+          - --
+          - /bin/sh
+          - -c
+          - 'umask 077; cat > /var/lib/cloudflare-warp/mdm.xml'
+        stdin: "{{ core40_persist_new_mdm }}"
+        stdin_add_newline: false
+      register: core40_persist_write
+      changed_when: true
+      failed_when: (core40_persist_write.stdout | from_json).exitcode | int != 0
+      no_log: true
+
+    - name: Restart only the Cloudflare WARP client service
+      ansible.builtin.command:
+        argv: [qm, guest, exec, '2243', --timeout, '90', --, systemctl, restart, warp-svc]
+      register: core40_persist_restart
+      changed_when: true
+      failed_when: (core40_persist_restart.stdout | from_json).exitcode | int != 0
+
+    - name: Wait for the client to reconnect automatically after restart
+      ansible.builtin.command:
+        argv: [qm, guest, exec, '2243', --, warp-cli, --accept-tos, status]
+      register: core40_persist_reconnected
+      changed_when: false
+      failed_when: false
+      retries: 15
+      delay: 4
+      until: >-
+        core40_persist_reconnected.rc == 0
+        and (core40_persist_reconnected.stdout | from_json).get('exitcode', 1) == 0
+        and 'Status update: Connected' in
+            (core40_persist_reconnected.stdout | from_json).get('out-data', '')
+      no_log: true
+
+    - name: Require automatic connection completed
+      ansible.builtin.assert:
+        that:
+          - (core40_persist_reconnected.stdout | from_json).exitcode | int == 0
+          - "'Status update: Connected' in (core40_persist_reconnected.stdout | from_json)['out-data']"
+        fail_msg: CORE40_CF_AUTO_RECONNECT_FAILED
+      no_log: true
+
+    - name: Verify HOME PBS still routes through CloudflareWARP
+      ansible.builtin.command:
+        argv: [qm, guest, exec, '2243', --, ip, -4, route, get, '192.168.11.223']
+      register: core40_persist_route_after
+      changed_when: false
+
+    - name: Verify genuine HOME PBS HTTPS after service restart
+      ansible.builtin.command:
+        argv: [qm, guest, exec, '2243', --timeout, '35', --, curl, -ksS, --connect-timeout, '8', --max-time, '20', -o, /dev/null, -w, '%{http_code}', https://192.168.11.223:8007/]
+      register: core40_persist_https
+      changed_when: false
+      failed_when: false
+
+    - name: Verify DNS integrity after service restart
+      ansible.builtin.command:
+        argv: [qm, guest, exec, '2243', --, sha256sum, /etc/resolv.conf]
+      register: core40_persist_dns_after
+      changed_when: false
+
+    - name: Confirm no route, HTTPS or DNS regression after autoconnect
+      ansible.builtin.assert:
+        that:
+          - >-
+            ' dev CloudflareWARP ' in (' ' ~
+            ((core40_persist_route_after.stdout | from_json)['out-data'] | trim) ~ ' ')
+          - (core40_persist_https.stdout | from_json).exitcode | int == 0
+          - ((core40_persist_https.stdout | from_json)['out-data'] | trim) == '200'
+          - >-
+            (core40_persist_dns_after.stdout | from_json)['out-data'] ==
+            (core40_persist_dns_before.stdout | from_json)['out-data']
+        fail_msg: CORE40_CF_RECONNECT_POSTCHECK_FAILED
+      no_log: true
+
+  rescue:
+    - name: Restore previous MDM without automatic reconnect
+      ansible.builtin.command:
+        argv: [qm, guest, exec, '2243', --pass-stdin, '1', --timeout, '60', --, /bin/sh, -c, 'umask 077; cat > /var/lib/cloudflare-warp/mdm.xml']
+        stdin: "{{ core40_persist_old_mdm }}"
+        stdin_add_newline: false
+      failed_when: false
+      changed_when: true
+      no_log: true
+
+    - name: Restart WARP service using previously verified settings
+      ansible.builtin.command:
+        argv: [qm, guest, exec, '2243', --timeout, '90', --, systemctl, restart, warp-svc]
+      failed_when: false
+      changed_when: true
+
+    - name: Restore the previously connected WARP session
+      ansible.builtin.command:
+        argv: [qm, guest, exec, '2243', --timeout, '90', --, warp-cli, --accept-tos, connect]
+      failed_when: false
+      changed_when: true
+      no_log: true
+
+    - name: Reject persistence if service restart validation failed
+      ansible.builtin.fail:
+        msg: CORE40_CF_AUTO_CONNECT_TEST_FAILED_OLD_MDM_RESTORED_CHECK_WARP_AND_PBS
+
+- name: Check current PBS proxy state
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, systemctl, is-active, proxmox-backup-proxy]
+  register: core40_persist_pbs_after
+  changed_when: false
+
+- name: Require running PBS service after WARP persistence
+  ansible.builtin.assert:
+    that:
+      - (core40_persist_pbs_after.stdout | from_json).exitcode | int == 0
+      - (core40_persist_pbs_after.stdout | from_json)['out-data'] | trim == 'active'
+    fail_msg: CORE40_CF_PBS_PROXY_NOT_ACTIVE_AFTER_PERSISTENCE
+
+- name: Report durable CORE Cloudflare WARP transport
+  ansible.builtin.debug:
+    msg:
+      - CORE40_CF_AUTO_CONNECT=1_MINUTE
+      - CORE40_CF_RESTART_TEST=PASSED_OR_ALREADY_CONFIGURED
+      - CORE40_CF_TRANSPORT=TRAFFIC_ONLY_HOME_PBS_32
+      - CORE40_CF_MANAGEMENT_DNS=UNCHANGED
+      - CORE40_CF_PBS_PROXY=ACTIVE
