@@ -4,6 +4,14 @@ tasks:
   - name: 00-Обновить список задач
     playbook: playbooks/update-task-catalog.yml
     description: Обновить каталог задач CORE из Ansible-CORE (без запуска остальных задач)
+  - name: "05-Ввести и проверить credentials"
+    playbook: playbooks/obtain-core-credentials.yml
+    description: "Единые credentials CORE в Semaphore; пустые поля сохраняют действующие значения"
+    survey_vars:
+      - {name: DH_INPUT_CLOUDFLARE_API_TOKEN, title: "Cloudflare — API Token (пусто — сохранить прежний)", type: secret, target: env, required: false, values: []}
+      - {name: DH_INPUT_CLOUDFLARE_TEAM_NAME, title: "Cloudflare Zero Trust — team name (пусто — сохранить прежнее)", type: "", target: env, required: false, values: []}
+      - {name: DH_INPUT_CLOUDFLARE_ENROLL_CLIENT_ID, title: "Cloudflare One — enrollment Service Token Client ID (пусто — сохранить прежний)", type: secret, target: env, required: false, values: []}
+      - {name: DH_INPUT_CLOUDFLARE_ENROLL_CLIENT_SECRET, title: "Cloudflare One — enrollment Service Token Client Secret (пусто — сохранить прежний)", type: secret, target: env, required: false, values: []}
   - name: 40-CORE Infrastructure
     playbook: playbooks/core-pbs.yml
     description: "Audit CORE PVE/PBS infrastructure or prepare pbs-core; no backup synchronization"
