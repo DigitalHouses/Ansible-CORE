@@ -207,3 +207,47 @@ CORE Remote, sync в namespace `serzhan-home` без `remove-vanished`,
 - CORE Semaphore Job #10 (`audit`): `success`, `core40_pve ok=10 changed=0 failed=0`, `runner ok=2 changed=0 failed=0`. Показано `CORE40_STANDARD_MEDIA_VM2243=PRESENT`, `CORE40_LEGACY_MEDIA_VM2250=ABSENT` и правильный `CORE40_TARGET_GUEST=dh-core/VM2243/192.168.11.243`.
 - CORE Semaphore Job #11 (`prepare`): `success`, `core40_pve ok=28 changed=0 failed=0`, `runner ok=2 changed=0 failed=0`; оба datastore и mountpoint ZFS приняты без повторного создания.
 - Cloudflare на CORE/HOME **не меняли**. Следующий этап туннелей выполняется в профильном чате, по отдельному решению пользователя.
+
+## Повторный аудит транспорта CORE → HOME (12.11.2026)
+
+На `dh-core / Media Server + PBS — VM2243, 192.168.11.243`
+через Proxmox Guest Agent проверено:
+
+- Debian 13 (trixie), x86_64;
+- `cloudflare-warp` не установлен, `warp-svc` неактивен;
+- `ip route get 192.168.11.223` идёт через `eth0` (напрямую
+  через общую LAN), поэтому защищённый маршрут **не подтверждён**;
+- в `dh-core / Semaphore — CT1241, 192.168.11.241` environment
+  пока `Empty`; Cloudflare Service Token для headless enrollment
+  отсутствует в CORE credentials;
+- никакие HOME ресурсы, Cloudflare policies, сетевые маршруты и PBS
+  сервисы не менялись.
+
+В №40 (`audit`) добавлен **только** read-only контроль наличия
+Cloudflare One Client, статуса `warp-svc` и маршрута к пилотному HOME
+PBS. Подготовка ZFS `prepare` осталась прежней.
+
+### Зависимости для развертывания транспорта
+
+1. HOME №70 — на существующем cloudflared PVE сайта `serzhan-home`
+   опубликовать **private route 192.168.11.223/32** к HOME PBS,
+   не меняя его опубликованные приложения и не запуская CORE задачи.
+2. CORE: создать штатный Cloudflare Zero Trust Service Token для
+   автоматической регистрации headless клиента и политику
+   `Service Auth` для enrollment; сохранить `organization`,
+   `auth_client_id` и `auth_client_secret` вне Git, в
+   существующем Semaphore.
+3. CORE: установить штатный Cloudflare One Client непосредственно в
+   VM2243; разрешить только PBS HOME IP `192.168.11.223/32` через
+   Split Tunnels, не перехватывать весь трафик VM.
+4. Проверить на VM2243 статус клиента, маршрут через Cloudflare и
+   **реальную** HTTPS-доступность HOME PBS TCP 8007. В общей
+   LAN случайный успешный TCP по `eth0` не считается успешным тестом.
+5. После приёмки Cloudflare-транспорта переходить в №50 к штатному
+   read-only PBS API identity и Pull Sync.
+
+Документация Cloudflare по headless enrollment:
+https://developers.cloudflare.com/cloudflare-one/tutorials/deploy-client-headless-linux/
+
+Документация Split Tunnels:
+https://developers.cloudflare.com/cloudflare-one/team-and-resources/devices/cloudflare-one-client/configure/route-traffic/split-tunnels/

@@ -111,6 +111,18 @@
           - not ((core40_source_route_raw.stdout | from_json)['out-truncated'] | default(false) | bool)
         fail_msg: CORE40_SOURCE_ROUTE_AUDIT_FAILED
 
+    - name: Check Cloudflare One Client package in actual CORE PBS guest
+      ansible.builtin.command:
+        argv: [qm, guest, exec, '2243', --, dpkg-query, -W, cloudflare-warp]
+      register: core40_warp_package_raw
+      changed_when: false
+
+    - name: Check Cloudflare One Client service in actual CORE PBS guest
+      ansible.builtin.command:
+        argv: [qm, guest, exec, '2243', --, systemctl, is-active, warp-svc]
+      register: core40_warp_service_raw
+      changed_when: false
+
     - name: Explain that direct HOME LAN does not validate Cloudflare connectivity
       ansible.builtin.debug:
         msg:
@@ -118,6 +130,8 @@
             CORE40_SOURCE_ROUTE={{ 'DIRECT_LAN_NOT_ACCEPTED' if
             ' dev eth0 ' in (' ' ~ ((core40_source_route_raw.stdout | from_json)['out-data'] | trim) ~ ' ')
             else 'NON_LAN_ROUTE_REQUIRES_CLOUDFLARE_VERIFICATION' }}
+          - "CORE40_CLOUDFLARE_CLIENT={{ 'INSTALLED' if (core40_warp_package_raw.stdout | from_json).exitcode | int == 0 else 'NOT_INSTALLED' }}"
+          - "CORE40_CLOUDFLARE_SERVICE={{ ((core40_warp_service_raw.stdout | from_json).get('out-data', 'UNKNOWN') | trim | upper) }}"
           - CORE40_EXPECTED_TRANSPORT=Cloudflare_Tunnel_private_route_to_HOME_PBS_32
           - CORE40_SOURCE_PRIVATE_IPV4=192.168.11.223
           - CORE40_TARGET_GUEST=dh-core/VM2243/192.168.11.243
