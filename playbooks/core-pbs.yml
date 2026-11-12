@@ -17,7 +17,7 @@
     - name: Refuse execution from a HOME or unexpected CORE runner
       ansible.builtin.assert:
         that:
-          - core40_action in ['audit', 'prepare', 'cf-audit', 'cf-install', 'cf-register']
+          - core40_action in ['audit', 'prepare', 'cf-audit', 'cf-install', 'cf-register', 'cf-profile-prepare']
           - core40_accept_tos in ['no', 'yes']
           - core40_site == 'dh-core'
           - core40_profile == 'core'
@@ -32,9 +32,13 @@
         fail_msg: CORE40_CF_TOS_ACCEPTANCE_REQUIRED_IN_SURVEY
       when: core40_action == 'cf-register'
 
-    - name: Inspect CORE Cloudflare readiness before audit or registration
+    - name: Inspect CORE Cloudflare readiness before audit or enrollment-profile preparation
       ansible.builtin.include_tasks: ../tasks/core40-cloudflare-readiness.yml
-      when: core40_action in ['cf-audit', 'cf-register']
+      when: core40_action in ['cf-audit', 'cf-register', 'cf-profile-prepare']
+
+    - name: Prepare isolated inactive CORE PBS device profile
+      ansible.builtin.include_tasks: ../tasks/core40-cloudflare-profile.yml
+      when: core40_action == 'cf-profile-prepare'
 
     - name: Register only the pinned CORE Proxmox host
       ansible.builtin.add_host:

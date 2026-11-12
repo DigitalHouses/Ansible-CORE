@@ -1,0 +1,125 @@
+---
+# CORE40: Prepare only an isolated, DISABLED WARP device profile for CORE PBS.
+# No effect on the default profile, other devices, active routes or DNS.
+- name: Require exact CORE device enrollment Service Auth policy
+  ansible.builtin.assert:
+    that:
+      - core40_cf_warp_apps | length == 1
+      - core40_cf_enrollment_policies | length == 1
+      - core40_cf_policy_token_rules | default([]) | length == 1
+      - core40_cf_enrollment_app_policies.status | default(0) == 200
+      - >-
+        (core40_cf_enrollment_app_policies.json.result | default([])
+        | selectattr('id', 'equalto', core40_cf_enrollment_policies[0].id)
+        | list | length) == 1
+      - core40_cf_queries.results[4].status | default(0) == 200
+      - core40_cf_policy_token_rules[0].service_token.token_id is match('^[0-9a-fA-F-]{36}$')
+    fail_msg: CORE40_CF_PROFILE_REQUIRES_EXACT_SERVICE_AUTH_AND_DEVICE_PROFILE_ACCESS
+  no_log: true
+
+- name: Select dedicated CORE profile identity and existing names
+  ansible.builtin.set_fact:
+    core40_cf_profile_name: dh-core-pbs-private
+    core40_cf_profile_match: >-
+      identity.service_token_uuid == "{{ core40_cf_policy_token_rules[0].service_token.token_id }}"
+    core40_cf_profile_existing: >-
+      {{ core40_cf_queries.results[4].json.result | default([])
+         | selectattr('name', 'equalto', 'dh-core-pbs-private') | list }}
+  no_log: true
+
+- name: Refuse ambiguous existing CORE profile
+  ansible.builtin.assert:
+    that: core40_cf_profile_existing | length <= 1
+    fail_msg: CORE40_CF_DUPLICATE_PROFILE_NAME
+
+- name: Create only an INACTIVE dedicated CORE PBS WARP profile
+  ansible.builtin.uri:
+    url: "https://api.cloudflare.com/client/v4/accounts/{{ core40_cf_account_id }}/devices/policy"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ DH_CLOUDFLARE_API_TOKEN }}"
+    body_format: json
+    body:
+      name: "{{ core40_cf_profile_name }}"
+      description: "Dedicated CORE PBS, enable after HOME 70 route and transport validation"
+      match: "{{ core40_cf_profile_match }}"
+      precedence: 10
+      profile_type: warp
+      enabled: false
+      include:
+        - address: 192.168.11.223/32
+          description: "HOME serzhan PBS"
+    status_code: [200, 201, 400, 403, 409]
+    use_proxy: false
+    timeout: 15
+  register: core40_cf_profile_created
+  changed_when: core40_cf_profile_created.status in [200, 201] and (core40_cf_profile_created.json.success | default(false))
+  when: core40_cf_profile_existing | length == 0
+  no_log: true
+
+- name: Refuse incomplete Cloudflare profile creation
+  ansible.builtin.assert:
+    that:
+      - core40_cf_profile_created.status | default(0) in [200, 201]
+      - core40_cf_profile_created.json.success | default(false)
+    fail_msg: CORE40_CF_PROFILE_CREATE_REJECTED_CHECK_ACCOUNT_ACCESS
+  when: core40_cf_profile_existing | length == 0
+  no_log: true
+
+- name: Read dedicated CORE profile ID without exposing other device rules
+  ansible.builtin.set_fact:
+    core40_cf_profile_id: >-
+      {{ core40_cf_profile_existing[0].policy_id
+         if (core40_cf_profile_existing | length == 1)
+         else core40_cf_profile_created.json.result.policy_id }}
+  no_log: true
+
+- name: Read back dedicated CORE profile
+  ansible.builtin.uri:
+    url: "https://api.cloudflare.com/client/v4/accounts/{{ core40_cf_account_id }}/devices/policy/{{ core40_cf_profile_id }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ DH_CLOUDFLARE_API_TOKEN }}"
+    status_code: 200
+    use_proxy: false
+    timeout: 12
+  register: core40_cf_profile_readback
+  changed_when: false
+  no_log: true
+
+- name: Read back only the dedicated CORE profile Include list
+  ansible.builtin.uri:
+    url: "https://api.cloudflare.com/client/v4/accounts/{{ core40_cf_account_id }}/devices/policy/{{ core40_cf_profile_id }}/include"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ DH_CLOUDFLARE_API_TOKEN }}"
+    status_code: 200
+    use_proxy: false
+    timeout: 12
+  register: core40_cf_profile_includes
+  changed_when: false
+  no_log: true
+
+- name: Require exact isolated disabled profile and /32 Include route
+  ansible.builtin.assert:
+    that:
+      - core40_cf_profile_readback.json.success | default(false)
+      - core40_cf_profile_readback.json.result.name == 'dh-core-pbs-private'
+      - core40_cf_profile_readback.json.result.match == core40_cf_profile_match
+      - not (core40_cf_profile_readback.json.result.enabled | bool)
+      - core40_cf_profile_readback.json.result.profile_type | default('warp') == 'warp'
+      - core40_cf_profile_includes.json.success | default(false)
+      - core40_cf_profile_includes.json.result | length == 1
+      - core40_cf_profile_includes.json.result[0].address == '192.168.11.223/32'
+    fail_msg: CORE40_CF_PROFILE_READBACK_DIFFERS_FROM_SAFE_DISABLED_CONFIGURATION
+  no_log: true
+
+- name: Report prepared CORE Cloudflare profile without enabling routing
+  ansible.builtin.debug:
+    msg:
+      - CORE40_CF_CORE_PROFILE=dh-core-pbs-private
+      - CORE40_CF_CORE_PROFILE_ENABLED=FALSE
+      - CORE40_CF_CORE_PROFILE_MATCH=DEDICATED_DH_CORE_PBS_SERVICE_TOKEN
+      - CORE40_CF_CORE_PROFILE_SPLIT_TUNNEL=INCLUDE_192.168.11.223/32
+      - CORE40_CF_DEFAULT_PROFILE=UNMODIFIED
+      - CORE40_CF_WARP_TRAFFIC=NOT_ACTIVATED
