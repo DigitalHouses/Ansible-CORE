@@ -54,3 +54,21 @@ CORE PVE, работающую VM2243, наличие `pbs-core` и `pbs-serzhan
 `playbooks/core-pbs.yml` и Survey `audit/prepare`.
 №50 создаётся как новый шаблон через каталог №00. Существующие
 задания и история не удаляются.
+
+## Живая приёмка разделения задач — 12.11.2026
+
+- `dh-core / Semaphore — CT1241, 192.168.11.241`: существующая
+  №40 переименована **на том же шаблоне ID 2**. Сохранены исходная
+  история запусков, repository ID 2, inventory ID 2, environment ID 1.
+- №00 Job #15: `success`, создала новую №50, шаблон ID 3.
+- №50 Job #16: `success`, `runner ok=2 changed=0 failed=0`,
+  `core50_pve ok=9 changed=0 failed=0`.
+- Реальный PBS в `dh-core / VM2243, 192.168.11.243`:
+  `pbs-core` и `pbs-serzhan` присутствуют;
+  `CORE50_REMOTE_COUNT=0`, `CORE50_PULL_SYNC_JOB_COUNT=0`.
+- №40 Job #17 (`audit`): `success`, `runner ok=2 changed=0 failed=0`,
+  `core40_pve ok=10 changed=0 failed=0`.
+- Повторный №00 Job #18: `success`; шаблоны ID 1/2/3 сохранены,
+  дубликаты не появились.
+- Полный backup E2E (Pull Sync, Verify, восстановление) **не выполнен**:
+  транспорт Cloudflare и PBS source credentials ещё не готовы.
