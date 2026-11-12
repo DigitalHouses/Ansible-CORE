@@ -527,3 +527,70 @@ path plus rollback are checked. CORE №50 remains downstream.
 
 Official Cloudflare reference:
 https://developers.cloudflare.com/api/resources/zero_trust/subresources/devices/subresources/policies/subresources/custom/methods/create/
+
+### CORE40: HOME route confirmed and real Cloudflare E2E accepted (13.11.2026)
+
+HOME №70 delivered route `192.168.11.223/32` through existing
+`serzhan-home` tunnel:
+- Tunnel UUID `6a04d9cd-0b17-48f3-8366-9f86ea08cb24`;
+- Private Route ID `eebd7ec3-e1dd-46eb-95e7-9f6a85f16905`;
+- HOME PVE `192.168.11.220`, HOME PBS `192.168.11.223:8007`
+  (VM2223).
+
+CORE №40 `cf-audit` Job #51 **success**:
+`CORE40_CF_HOME_PRIVATE_ROUTE=PRESENT`.
+CORE №00 Job #52 installed `cf-transport-audit`.
+CORE №40 Job #53 **success changed=0**:
+verified exact route ID, tunnel UUID and Cloudflare account;
+the dedicated `dh-core-pbs-private` device profile matched only
+the `dh-core-pbs` service token, enabled=false, Include only
+`192.168.11.223/32`; guest was still posture-only/disconnected.
+
+Added CORE №40 `cf-transport-enable` with strict preflight,
+traffic-only MDM, direct-PVE/QEMU Guest Agent rollback, and
+required evidence **Connected + CloudflareWARP route + HTTPS 200**.
+DNS, management/default routes and PBS proxy are independently checked.
+No HOME, new tunnel, other device profiles or backup jobs touched.
+
+- Job #55: Cloudflare PATCH with additional `service_mode_v2`
+  rejected HTTP 400. Automatic rollback restored original
+  `postureonly` MDM, disconnected WARP and disabled the
+  dedicated profile; PBS proxy remained active.
+- Job #56: PATCH only `enabled=true` succeeded. The guest's
+  official MDM `service_mode=tunnelonly` independently enforces
+  **Traffic only** without DNS interception. Guest policy confirmed
+  `Profile ID` matches `dh-core-pbs-private` and
+  `Include 192.168.11.223/32` before connect.
+  **Success**, `runner changed=4 failed=0`.
+  `warp-cli status` returned `Connected / Network: healthy`.
+  `ip -4 route get 192.168.11.223`:
+  `dev CloudflareWARP table 65743 src 100.96.0.6`,
+  **not eth0**, despite CORE and HOME sharing physical
+  `192.168.11.0/24`.
+  Real HTTPS origin `https://192.168.11.223:8007/`
+  returned **HTTP 200**. DNS hash, CORE PVE route, Internet
+  route and PBS proxy unchanged.
+
+Then enabled persistent MDM `auto_connect=1` **only on CORE PBS**
+(no VM reboot). CORE №00 Job #57 added `cf-transport-persist`.
+CORE №40 Job #58 **success, changed=2 failed=0**:
+restarted only `warp-svc`; client reconnected automatically,
+HOME route remained `CloudflareWARP`,
+HTTPS `:8007` again returned 200, PBS active, DNS unchanged.
+Independently reconfirmed `Connected / Network: healthy` and
+source WARP IPv4 `100.96.0.6`.
+
+CORE №40 Job #59 `cf-transport-audit`: **success changed=0**,
+`ACTIVE`, `TRAFFIC_ONLY_CONNECTED`,
+`HTTPS_200_VIA_WARP`. Read-only audit now supports both
+prepared and active states.
+CORE №40 Job #60 repeated `cf-transport-enable`:
+**success changed=0** (does not reactivate working transport).
+CORE №40 Job #61 repeated `cf-transport-persist`:
+**success changed=0** (persistent configuration idempotent).
+
+**№40 Cloudflare private-network transport acceptance: PASSED.**
+No full VM reboot was performed; service-restart persistence was tested.
+Now move to **CORE №50** (HOME PBS readonly credentials, Remote,
+Pull Sync, retention, Verify, actual restore). Never count direct
+LAN success as Cloudflare proof. Do not modify HOME from CORE.
