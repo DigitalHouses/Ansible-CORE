@@ -92,3 +92,27 @@
                  | selectattr('name', 'equalto', 'dh-core-pbs') | list | length) > 0)
           else 'NOT_CONFIRMED' }}
       - CORE40_CF_ENROLLMENT_POLICY_AND_SPLIT_TUNNEL=REQUIRES_VERIFICATION
+
+- name: Refuse registration if Cloudflare cannot confirm token and Service Auth policy
+  ansible.builtin.assert:
+    that:
+      - core40_cf_queries.results[1].status | default(0) == 200
+      - >-
+        (core40_cf_queries.results[1].json.result | default([])
+        | selectattr('type', 'equalto', 'warp') | list | length) > 0
+      - core40_cf_queries.results[3].status | default(0) == 200
+      - >-
+        (core40_cf_queries.results[3].json.result | default([])
+        | selectattr('name', 'equalto', 'dh-core-pbs') | list | length) == 1
+      - core40_cf_queries.results[2].status | default(0) == 200
+      - >-
+        (core40_cf_queries.results[2].json.result | default([])
+        | selectattr('decision', 'equalto', 'non_identity') | list | length) > 0
+    fail_msg: >-
+      CORE40_CF_ENROLLMENT_NOT_READY:
+      Cloudflare account selected by digitalhouses.vip does not expose the
+      dh-core-pbs Service Token and a Service Auth policy.
+      Check the Zero Trust account and ensure the Service Auth policy is
+      attached to Device enrollment permissions.
+      No secrets were written to the PBS VM.
+  when: core40_action == 'cf-register'

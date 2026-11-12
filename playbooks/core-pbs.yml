@@ -26,9 +26,15 @@
           - pve.node | length > 0
         fail_msg: CORE40_MUST_RUN_FROM_DH_CORE_SEMAPHORE
 
-    - name: Inspect CORE Cloudflare readiness without changing configuration
+    - name: Require explicit Terms of Service consent before registration preflight
+      ansible.builtin.assert:
+        that: core40_accept_tos == 'yes'
+        fail_msg: CORE40_CF_TOS_ACCEPTANCE_REQUIRED_IN_SURVEY
+      when: core40_action == 'cf-register'
+
+    - name: Inspect CORE Cloudflare readiness before audit or registration
       ansible.builtin.include_tasks: ../tasks/core40-cloudflare-readiness.yml
-      when: core40_action == 'cf-audit'
+      when: core40_action in ['cf-audit', 'cf-register']
 
     - name: Register only the pinned CORE Proxmox host
       ansible.builtin.add_host:
@@ -43,7 +49,6 @@
           -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes
           -o UserKnownHostsFile=/var/lib/semaphore/.ssh/known_hosts
         core40_action: "{{ core40_action }}"
-        core40_cf_accept_tos: "{{ core40_accept_tos }}"
         core40_expected_node: "{{ pve.node }}"
         core40_pve_ipv4: "{{ pve.ipv4 }}"
         core40_home_pbs_ipv4: "{{ pve.ipv4.split('.')[:3] | join('.') }}.223"

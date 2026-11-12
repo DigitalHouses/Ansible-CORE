@@ -2,12 +2,6 @@
 # CORE40: Register the central PBS VM in Cloudflare One in POSTURE-ONLY mode.
 # No default-route, DNS, or HOME traffic takeover. Traffic mode is a separate step.
 # Credentials come exclusively from Semaphore task 05 (never from survey or Git).
-- name: Require explicit Cloudflare Terms of Service acceptance
-  ansible.builtin.assert:
-    that:
-      - core40_cf_accept_tos | default('no') == 'yes'
-    fail_msg: CORE40_CF_TOS_ACCEPTANCE_REQUIRED_IN_SURVEY
-
 - name: Require CORE Zero Trust credentials from shared task 05
   ansible.builtin.assert:
     that:

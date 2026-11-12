@@ -348,3 +348,24 @@ Official references:
 - https://developers.cloudflare.com/cloudflare-one/tutorials/deploy-client-headless-linux/
 - https://developers.cloudflare.com/cloudflare-one/team-and-resources/devices/cloudflare-one-client/deployment/mdm-deployment/parameters/
 - https://developers.cloudflare.com/cloudflare-one/team-and-resources/devices/cloudflare-one-client/configure/modes/
+
+### CORE40 preflight extension after live Cloudflare read (Job #35)
+
+Read-only `cf-audit` Job #35: `success`, `changed=0 failed=0`.
+The Cloudflare account associated with the canonical
+`digitalhouses.vip` zone exposes a WARP enrollment application but its
+API returned **0 service tokens**, **0 Service Auth policies**, and
+**0 private network routes**. Device Profiles / Split Tunnel endpoints
+returned `403`. This result conflicts with the token created in the
+dashboard, so check whether that token was created under another
+Cloudflare account or whether the API token uses a different account.
+
+Registration now includes a **read-only API preflight on CORE Runner**:
+the `dh-core-pbs` service token and at least one Service Auth
+(`decision=non_identity`) policy must be visible in that canonical
+account. Failure blocks before any command on PBS VM2243, including
+writing `mdm.xml` or accepting ToS. Attachment of the policy to
+Device enrollment permissions still needs to be confirmed in Cloudflare
+Dashboard. The private route and Device Profiles are not required
+for initial posture-only enrollment, but are mandatory before
+traffic tunneling.
