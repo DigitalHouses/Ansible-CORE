@@ -262,3 +262,52 @@ https://developers.cloudflare.com/cloudflare-one/team-and-resources/devices/clou
 - `CORE40_CLOUDFLARE_SERVICE=INACTIVE`.
 - PBS и HOME не изменялись. Это приёмка **аудита**, а не
   Cloudflare-транспорта или Pull Sync.
+
+### CORE40 Cloudflare One Client — пилот 12.11.2026
+
+В задачу №40 добавлены два отдельных действия:
+
+- `cf-audit` — проверка CF API, Access enrollment app, service token,
+  private route и состояния клиента без изменений;
+- `cf-install` — штатная установка пакета `cloudflare-warp` в
+  `dh-core / Media Server + PBS — VM2243, 192.168.11.243`, без
+  сохранения enrollment credentials и без маршрутизации через WARP.
+
+Факты из запущенных jobs:
+
+- №00 Job #26: `success`, каталог добавил `cf-audit`.
+- №40 Job #27: `error`, исправлено чтение team name из
+  Semaphore `env`, а не Ansible var. №05 не менялась.
+- №40 Job #29 (`cf-audit`): `success`, `changed=0`;
+  Cloudflare routes/apps/policies/service_tokens API доступны (HTTP 200),
+  Device Profiles и default Split Tunnel API возвращают HTTP 403;
+  private route `192.168.11.223/32` не подтверждён, Service Token
+  `dh-core-pbs` не подтверждён по возвращённому API набору.
+  Cloudflare WARP еще не был установлен.
+- №00 Job #30: `success`, добавил `cf-install` в Survey №40.
+- №40 Job #31 (`cf-install`): официальный Cloudflare apt key и
+  Debian `trixie` repository настроены, пакет установлен; Semaphore
+  ошибочно пометил job как `error`, поскольку `qm guest exec`
+  превысил default 30s и вернул PID без `exitcode`. Исправлено
+  `--timeout 300` для apt-команд.
+- №40 Job #32 (`cf-install`): `success`, `changed=0 failed=0`;
+  повторный прогон **идемпотентен**.
+- Фактическая проверка в VM2243: `cloudflare-warp 2026.8.2115.0`,
+  `warp-svc=active`, `proxmox-backup-proxy=active`; маршруты к
+  `192.168.11.223` и `1.1.1.1` по-прежнему через `eth0`.
+- `warp-cli status` пока запрашивает принятие Terms of Service.
+  Устройство не регистрировалось, `mdm.xml` не создавался,
+  DNS/Split Tunnels/Cloudflare account не изменялись.
+
+**Следующий этап:** сначала подтвердить Service Auth device enrollment
+policy, private route HOME №70 и Include `192.168.11.223/32`
+в применимом CORE device profile (сейчас API scope 403); затем
+аккуратно регистрировать WARP в этой VM с использованием
+№05 credentials и проверкой маршрута, PBS/Media доступности.
+Прямой LAN путь не считать успешным CF E2E.
+
+Источники:
+- https://developers.cloudflare.com/cloudflare-one/tutorials/deploy-client-headless-linux/
+- https://developers.cloudflare.com/cloudflare-one/team-and-resources/devices/cloudflare-one-client/deployment/device-enrollment/
+- https://developers.cloudflare.com/cloudflare-one/team-and-resources/devices/cloudflare-one-client/configure/route-traffic/split-tunnels/
+- https://github.com/proxmox/pve-docs/blob/master/generated/qm.1-synopsis.adoc
