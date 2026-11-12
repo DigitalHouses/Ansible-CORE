@@ -1,0 +1,19 @@
+---
+# CORE-only catalog: never reuse HOME playbooks for central infrastructure.
+tasks:
+  - name: 00-Обновить список задач
+    playbook: playbooks/update-task-catalog.yml
+    description: Обновить каталог задач CORE из Ansible-CORE (без запуска остальных задач)
+  - name: 40-Central PBS
+    playbook: playbooks/core-pbs.yml
+    description: "Audit CORE PBS and Cloudflare route, or prepare pbs-core; no HOME changes"
+    survey_vars:
+      - name: DH_CORE40_ACTION
+        title: "Central PBS — действие"
+        type: enum
+        target: ""
+        required: true
+        default_value: audit
+        values:
+          - {name: "Проверить без изменений", value: audit}
+          - {name: "Создать отдельный ZFS dataset и datastore pbs-core", value: prepare}

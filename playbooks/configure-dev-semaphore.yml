@@ -1,0 +1,211 @@
+---
+# Task 08: maintain the site-scoped Semaphore API access on the central DEV.
+# Also called once by fresh bootstrap after Runner -> PVE SSH enrollment.
+- name: 08 - Ensure dedicated Semaphore API access on Runner
+  hosts: runner
+  connection: local
+  become: true
+  gather_facts: false
+  vars_files:
+    - /etc/digitalhouses/pve.yml
+  vars:
+    semaphore_api: http://127.0.0.1/api
+    sem_cf_action: "{{ DH_SEMAPHORE_CF_ACTION | default('skip', true) }}"
+    sem_cf_token: "{{ DH_CLOUDFLARE_API_TOKEN | default('', true) }}"
+    sem_cf_api: https://api.cloudflare.com/client/v4
+    sem_cf_tunnel_name: "{{ dev_site_id }}"
+    sem_cf_hostname: "{{ dev_site_id }}-pve-semaphore.digitalhouses.vip"
+    sem_cf_legacy_hostname: "{{ dev_site_id }}-semaphore.digitalhouses.vip"
+    sem_cf_headers:
+      Authorization: "Bearer {{ sem_cf_token }}"
+      Accept: application/json
+  tasks:
+    - name: Read this Runner's site identity
+      ansible.builtin.slurp:
+        src: /etc/digitalhouses/site-id
+      register: dev_site_file
+
+    - name: Validate site and trusted PVE target
+      ansible.builtin.assert:
+        that:
+          - (dev_site_file.content | b64decode | trim) is match('^[a-z][a-z0-9]*(-[a-z0-9]+)+$')
+          - pve.ipv4 is match('^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$')
+          - pve.node is match('^[a-zA-Z0-9][a-zA-Z0-9-]*$')
+        fail_msg: Invalid site identity or PVE inventory; task 08 stopped
+
+    - name: Keep site identity for DEV enrollment
+      ansible.builtin.set_fact:
+        dev_site_id: "{{ dev_site_file.content | b64decode | trim }}"
+
+    - name: Read the existing catalog credential on Runner only
+      ansible.builtin.slurp:
+        src: /etc/semaphore/catalog-token
+      register: dev_catalog_secret
+      no_log: true
+
+    - name: Keep administrative credential only in Runner memory
+      ansible.builtin.set_fact:
+        dev_admin_token: "{{ dev_catalog_secret.content | b64decode | trim }}"
+      no_log: true
+
+    - name: Identify this site's Semaphore project
+      ansible.builtin.uri:
+        url: "{{ semaphore_api }}/projects"
+        headers:
+          Authorization: "Bearer {{ dev_admin_token }}"
+        validate_certs: true
+        use_proxy: false
+      register: dev_site_projects
+      no_log: true
+
+    - name: Refuse ambiguous site project
+      ansible.builtin.assert:
+        that:
+          - dev_site_projects.json | selectattr('name', 'equalto', dev_site_id) | list | length == 1
+        fail_msg: Expected exactly one matching Semaphore site project
+
+    - name: Reuse the bootstrap implementation for dedicated DEV access
+      ansible.builtin.import_tasks: ../bootstrap/tasks/dev-access.yml
+      vars:
+        site_id: "{{ dev_site_id }}"
+        dev_project_id: "{{ (dev_site_projects.json | selectattr('name', 'equalto', dev_site_id) | first).id }}"
+
+    - name: Read protected transfer configuration
+      ansible.builtin.slurp:
+        src: /etc/semaphore/dev-automation.curl
+      register: dev_transfer_config
+      no_log: true
+
+    - name: Read the configured local HTTP endpoint without exposing configuration secrets
+      ansible.builtin.slurp:
+        src: /etc/semaphore/config.json
+      register: dev_server_config
+      no_log: true
+
+    - name: Read Runner management address independently of Semaphore browser URL
+      ansible.builtin.command:
+        argv: [/usr/sbin/ip, -4, -o, addr, show, dev, eth0]
+      register: dev_runner_management
+      changed_when: false
+
+    - name: Require a valid and unique Runner management IPv4
+      ansible.builtin.assert:
+        that:
+          - dev_runner_management.stdout_lines | length == 1
+          - "'inet ' in dev_runner_management.stdout"
+          - dev_runner_management.stdout.split('inet ')[1].split('/')[0] is match('^([0-9]{1,3}[.]){3}[0-9]{1,3}$')
+        fail_msg: "Cannot identify trusted Runner management IPv4 on eth0"
+
+    - name: Keep the actual site Runner IPv4 for DEV API smoke tests
+      ansible.builtin.set_fact:
+        dev_runner_ip: "{{ dev_runner_management.stdout.split('inet ')[1].split('/')[0] }}"
+
+    - name: Validate the requested Semaphore Cloudflare action
+      ansible.builtin.assert:
+        that: sem_cf_action in ['skip', 'audit', 'apply']
+        fail_msg: "Invalid task 08 Cloudflare action"
+
+    - name: Refuse creation of the removed Semaphore-only Tunnel
+      ansible.builtin.assert:
+        that: sem_cf_action != 'apply'
+        fail_msg: >-
+          Semaphore uses the existing site Tunnel {{ dev_site_id }}.
+          Do not create another connector or Tunnel from task 08.
+
+    - name: Audit existing Semaphore public Access without changing Tunnel
+      ansible.builtin.include_tasks: ../tasks/semaphore-cloudflare.yml
+      when: sem_cf_action == 'audit'
+
+    - name: Configure public Semaphore HTML base URL after verified Cloudflare Apply
+      ansible.builtin.copy:
+        dest: /etc/semaphore/config.json
+        owner: root
+        group: semaphore
+        mode: '0640'
+        content: |
+          {{ ((dev_server_config.content | b64decode | from_json)
+             | combine({'web_host': ''})) | to_nice_json }}
+      register: sem_public_web_host_config
+      no_log: true
+      when: sem_cf_action == 'apply'
+
+    - name: Read current Semaphore HTML after a prior Cloudflare deployment
+      ansible.builtin.uri:
+        url: http://127.0.0.1/
+        validate_certs: true
+        use_proxy: false
+        status_code: 200
+        return_content: true
+        timeout: 15
+      register: sem_public_html
+      changed_when: false
+      when:
+        - sem_cf_action == 'apply'
+        - not sem_public_web_host_config.changed
+
+    - name: Require origin-relative browser base for both LAN and Cloudflare
+      ansible.builtin.assert:
+        that:
+          - sem_public_html.content.find('<base href="/">') >= 0
+        fail_msg: "Semaphore HTML still uses an incorrect browser base URL"
+      when:
+        - sem_cf_action == 'apply'
+        - not sem_public_web_host_config.changed
+
+    - name: Register the existing pinned PVE SSH connection
+      ansible.builtin.add_host:
+        name: dev_delivery_pve
+        groups: dev_delivery_hosts
+        ansible_host: "{{ pve.ipv4 }}"
+        ansible_user: root
+        ansible_connection: ssh
+        ansible_ssh_private_key_file: /var/lib/semaphore/.ssh/id_ed25519
+        ansible_ssh_common_args: >-
+          -o StrictHostKeyChecking=yes -o ConnectTimeout=10
+          -o UserKnownHostsFile=/var/lib/semaphore/.ssh/known_hosts
+        ansible_python_interpreter: /usr/bin/python3
+        expected_pve_node: "{{ pve.node }}"
+      changed_when: false
+
+- name: 08 - Deliver and verify dedicated API access in central DEV
+  hosts: dev_delivery_hosts
+  gather_facts: false
+  become: false
+  vars:
+    dev_ctid: '1254'
+    dev_ip_cidr: 192.168.11.254/24
+    dev_dir: /home/dev/.config/ansible-3
+    dev_site_id: "{{ hostvars['runner'].dev_site_id }}"
+    dev_runner_ip: "{{ hostvars['runner'].dev_runner_ip }}"
+    dev_api_url: "http://{{ dev_runner_ip }}/api"
+    dev_curl_path: "{{ dev_dir }}/{{ dev_site_id }}.curl"
+  tasks:
+    - name: Use the shared transport without introducing another service
+      ansible.builtin.include_tasks: ../tasks/dev-delivery.yml
+
+# The Semaphore service owns the job's systemd cgroup. Restarting it while this
+# playbook is running terminates the job; schedule the restart at the very end.
+- name: 08 - Activate the new public browser base URL after the job exits
+  hosts: runner
+  connection: local
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Notify a delayed restart only after a real public URL change
+      ansible.builtin.debug:
+        msg: "Semaphore public base URL will activate after this job exits"
+      changed_when: hostvars['runner'].sem_public_web_host_config.changed | default(false)
+      notify: Queue the Semaphore restart after the running job exits
+
+  handlers:
+    - name: Queue the Semaphore restart after the running job exits
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/systemd-run
+          - --collect
+          - --unit=digitalhouses-semaphore-webhost-refresh
+          - --on-active=20s
+          - /usr/bin/systemctl
+          - restart
+          - digitalhouses-semaphore.service
+      changed_when: true
