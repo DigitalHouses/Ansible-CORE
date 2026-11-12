@@ -117,7 +117,7 @@
 
     - name: Refresh native apt metadata without upgrading installed packages
       ansible.builtin.command:
-        argv: [qm, guest, exec, '2243', --, apt-get, update]
+        argv: [qm, guest, exec, '2243', --timeout, '300', --, apt-get, update]
       register: core40_cf_apt_update
       changed_when: true
       failed_when: (core40_cf_apt_update.stdout | from_json).exitcode | int != 0
@@ -125,7 +125,7 @@
 
     - name: Install official Cloudflare One Client package without enrollment
       ansible.builtin.command:
-        argv: [qm, guest, exec, '2243', --, apt-get, install, '-y', cloudflare-warp]
+        argv: [qm, guest, exec, '2243', --timeout, '300', --, apt-get, install, '-y', cloudflare-warp]
       register: core40_cf_apt_install
       changed_when: true
       failed_when: (core40_cf_apt_install.stdout | from_json).exitcode | int != 0

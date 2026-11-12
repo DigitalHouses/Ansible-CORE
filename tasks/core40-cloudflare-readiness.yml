@@ -1,15 +1,5 @@
 ---
 # Read-only API preflight for CORE Cloudflare One client; no mutation.
-- name: Identify available credential channels without exposing their values
-  ansible.builtin.debug:
-    msg:
-      - "CORE40_CF_API_VAR={{ (DH_CLOUDFLARE_API_TOKEN | default('')) | length > 0 }}"
-      - "CORE40_CF_API_ENV={{ lookup('ansible.builtin.env', 'DH_CLOUDFLARE_API_TOKEN') | length > 0 }}"
-      - "CORE40_CF_TEAM_VAR={{ (DH_CLOUDFLARE_TEAM_NAME | default('')) | length > 0 }}"
-      - "CORE40_CF_TEAM_ENV={{ lookup('ansible.builtin.env', 'DH_CLOUDFLARE_TEAM_NAME') | length > 0 }}"
-      - "CORE40_CF_CLIENT_ID_VAR={{ (DH_CLOUDFLARE_ENROLL_CLIENT_ID | default('')) | length > 0 }}"
-      - "CORE40_CF_CLIENT_SECRET_VAR={{ (DH_CLOUDFLARE_ENROLL_CLIENT_SECRET | default('')) | length > 0 }}"
-
 - name: Validate CORE Cloudflare credentials before read-only inspection
   ansible.builtin.assert:
     that:
@@ -77,6 +67,10 @@
       - "CORE40_CF_ENROLLMENT_APPS_HTTP={{ core40_cf_queries.results[1].status | default('ERROR') }}"
       - "CORE40_CF_ACCESS_POLICIES_HTTP={{ core40_cf_queries.results[2].status | default('ERROR') }}"
       - "CORE40_CF_SERVICE_TOKENS_HTTP={{ core40_cf_queries.results[3].status | default('ERROR') }}"
+      - "CORE40_CF_SERVICE_TOKEN_RESULT_TYPE={{ (core40_cf_queries.results[3].json.result | default([])) | type_debug }}"
+      - "CORE40_CF_SERVICE_TOKEN_COUNT={{ (core40_cf_queries.results[3].json.result | default([])) | length }}"
+      - "CORE40_CF_PRIVATE_ROUTE_COUNT={{ (core40_cf_queries.results[0].json.result | default([])) | length }}"
+      - "CORE40_CF_SERVICE_AUTH_POLICIES_COUNT={{ (core40_cf_queries.results[2].json.result | default([]) | selectattr('decision', 'equalto', 'non_identity') | list) | length }}"
       - "CORE40_CF_DEVICE_PROFILES_HTTP={{ core40_cf_queries.results[4].status | default('ERROR') }}"
       - "CORE40_CF_DEFAULT_INCLUDE_HTTP={{ core40_cf_queries.results[5].status | default('ERROR') }}"
       - >-
