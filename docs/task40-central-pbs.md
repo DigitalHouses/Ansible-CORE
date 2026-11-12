@@ -311,3 +311,40 @@ policy, private route HOME №70 и Include `192.168.11.223/32`
 - https://developers.cloudflare.com/cloudflare-one/team-and-resources/devices/cloudflare-one-client/deployment/device-enrollment/
 - https://developers.cloudflare.com/cloudflare-one/team-and-resources/devices/cloudflare-one-client/configure/route-traffic/split-tunnels/
 - https://github.com/proxmox/pve-docs/blob/master/generated/qm.1-synopsis.adoc
+
+### CORE40 headless registration — implementation (12.11.2026)
+
+Added explicit `cf-register` option to existing task №40, not a new task
+or credentials store. Registration runs **only** if the operator
+selects `DH_CORE40_ACTION=cf-register` **and**
+`DH_CORE40_CF_ACCEPT_TOS=yes` in Semaphore Survey. Default is `no`.
+The task invokes `warp-cli --accept-tos` only after that consent.
+
+- Uses `DH_CLOUDFLARE_TEAM_NAME`, enrollment Client ID and Client Secret
+  from existing Semaphore №05 native Variable Group (no repeated input).
+- Creates official `/var/lib/cloudflare-warp/mdm.xml` through QEMU guest
+  agent's `--pass-stdin 1`, without a secret in process arguments,
+  PVE temporary files, Git or logs. File permissions: root-only `0600`.
+- First registration sets `service_mode=postureonly`,
+  `auto_connect=0`, `onboarding=false`. Cloudflare documents that
+  Posture only mode routes neither IP traffic nor DNS. This is a
+  **registration stage only**, not HOME private network connectivity.
+- Existing MDM file is **not overwritten**: repeat run verifies its SHA256
+  against current №05 values. Token rotation/re-enrollment requires a
+  separate explicitly controlled change.
+- Restarts `warp-svc` only on first creation, verifies organization
+  registration with `warp-cli registration show`, then checks status,
+  unchanged `eth0` routes and active PBS proxy. Raw credential material,
+  MDM content and raw Warp registration information are all `no_log`.
+- An unsuccessful registration must not be described as successful.
+  The protected `mdm.xml` can remain on disk for a retry once the
+  Service Auth enrollment policy is configured.
+- A separate future action to carry **HOME PBS traffic** via WARP must
+  validate HOME №70 route and a safe CORE-only `Include` Split Tunnel
+  profile before using `service_mode=warp`; it is deliberately not
+  part of `cf-register`.
+
+Official references:
+- https://developers.cloudflare.com/cloudflare-one/tutorials/deploy-client-headless-linux/
+- https://developers.cloudflare.com/cloudflare-one/team-and-resources/devices/cloudflare-one-client/deployment/mdm-deployment/parameters/
+- https://developers.cloudflare.com/cloudflare-one/team-and-resources/devices/cloudflare-one-client/configure/modes/

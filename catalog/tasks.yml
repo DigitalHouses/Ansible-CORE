@@ -27,6 +27,16 @@ tasks:
           - {name: "Подготовить ZFS dataset и datastore pbs-core", value: prepare}
           - {name: "Проверить Cloudflare policy, private route и client (без изменений)", value: cf-audit}
           - {name: "Установить пакет Cloudflare One Client без регистрации и маршрутов", value: cf-install}
+          - {name: "Зарегистрировать Cloudflare One Client (Posture only, без изменения маршрутов)", value: cf-register}
+      - name: DH_CORE40_CF_ACCEPT_TOS
+        title: "Согласие с Cloudflare One Client Terms of Service (только для регистрации)"
+        type: enum
+        target: ""
+        required: true
+        default_value: "no"
+        values:
+          - {name: "Не принимаю / не регистрировать", value: "no"}
+          - {name: "Принимаю условия Cloudflare и разрешаю регистрацию CORE PBS", value: "yes"}
   - name: 50-Central Backup
     playbook: playbooks/core-backup.yml
     description: "Read-only audit of central backup configuration; Remote/Pull Sync/E2E follow after HOME readiness"
