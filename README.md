@@ -1,11 +1,17 @@
 # DigitalHouses / Ansible-CORE
 
-Independent native Ansible + Semaphore for central dh-core infrastructure.
+Independent native Ansible + existing Semaphore for central **dh-core** infrastructure.
 
-Task 00: CORE catalog. Task 40: central PBS audit and safe datastore prep.
-Future tasks: central pull/sync backup jobs and monitoring.
-HOME setup, Media Server and Cloudflare HOME tunnel are excluded.
+- **00** — reconcile CORE Semaphore catalog.
+- **40-CORE Infrastructure** — audit CORE PVE/PBS infrastructure; safely
+  prepare dedicated `pbs-core` datastore when explicitly selected.
+- **50-Central Backup** — audit existing PBS backup integration; later
+  configure and operate HOME Remotes, Pull Sync, verification and E2E restore.
 
-See bootstrap/README.md and docs/repository-split.md.
-Snapshot source: DigitalHouses/Ansible-3 feat/bootstrap-home-core at b97b840.
-Original source repository is retained unchanged for rollback/history.
+HOME setup, HOME Media Server and HOME Cloudflare tunnel are **excluded**.
+CORE uses the finished HOME transport and credentials but never provisions HOME
+from this repository.
+
+See `bootstrap/README.md`, `docs/repository-split.md`,
+`docs/task40-central-pbs.md` and `docs/task50-central-backup.md`.
+Original source: `DigitalHouses/Ansible-3` is archived for history.

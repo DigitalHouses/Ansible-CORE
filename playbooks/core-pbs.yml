@@ -1,5 +1,6 @@
 ---
-# 40 | CORE PBS audit or safe preparation of a new datastore within existing VM.
+# 40 | CORE infrastructure audit or safe PBS datastore preparation.
+# Backup operations belong exclusively to task 50.
 # Never overwrites legacy PBS, disk configurations, backup jobs or sync remotes.
 - name: "40 | Identify dedicated CORE runner and pinned PVE"
   hosts: runner
@@ -130,5 +131,5 @@
           - "CORE40_LEGACY_MEDIA_VM2250={{ 'PRESENT' if core40_media_legacy | length else 'ABSENT' }}"
           - "CORE40_LEGACY_PBS_SERZHAN={{ 'PRESENT' if core40_storage_legacy | length else 'ABSENT' }}"
           - "CORE40_PVE_STORAGE_PBS_CORE={{ 'PRESENT' if core40_storage_central | length else 'NOT_CONFIGURED' }}"
-          - "CORE40_PULL_SYNC=NOT_CONFIGURED; waiting for confirmed Cloudflare private route"
-          - "NEXT=Set up Cloudflare route from actual CORE PBS VM, then HOME contract in separate chat"
+          - "CORE40_BACKUP_OPERATIONS=OUT_OF_SCOPE; see task 50"
+          - "NEXT=Complete Cloudflare infrastructure, then use CORE task 50 for backup setup"

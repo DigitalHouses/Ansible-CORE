@@ -1,0 +1,113 @@
+---
+# 50 | Central Backup: read-only audit before adding PBS Remotes/Pull Sync.
+# No HOME operations, tokens, ZFS changes, deletion, backup or sync execution.
+- name: "50 | Identify the trusted CORE runner and PVE"
+  hosts: runner
+  connection: local
+  gather_facts: false
+  vars_files:
+    - /etc/digitalhouses/pve.yml
+  vars:
+    core50_site: "{{ lookup('ansible.builtin.file', '/etc/digitalhouses/site-id') | trim }}"
+    core50_profile: "{{ lookup('ansible.builtin.file', '/etc/digitalhouses/site-profile') | trim }}"
+  tasks:
+    - name: Refuse a HOME runner or an unexpected PVE
+      ansible.builtin.assert:
+        that:
+          - core50_site == 'dh-core'
+          - core50_profile == 'core'
+          - pve.ipv4 == '192.168.11.240'
+          - pve.node | length > 0
+        fail_msg: CORE50_MUST_RUN_FROM_DH_CORE_SEMAPHORE
+
+    - name: Register only the pinned CORE PVE
+      ansible.builtin.add_host:
+        name: core50_pve
+        groups: core50_pve_group
+        ansible_host: "{{ pve.ipv4 }}"
+        ansible_user: root
+        ansible_connection: ssh
+        ansible_python_interpreter: /usr/bin/python3
+        ansible_ssh_private_key_file: /var/lib/semaphore/.ssh/id_ed25519
+        ansible_ssh_common_args: >-
+          -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes
+          -o UserKnownHostsFile=/var/lib/semaphore/.ssh/known_hosts
+        core50_expected_node: "{{ pve.node }}"
+      changed_when: false
+
+- name: "50 | Audit central PBS backup configuration"
+  hosts: core50_pve_group
+  gather_facts: false
+  tasks:
+    - name: Confirm the actual CORE PVE identity
+      ansible.builtin.command:
+        argv: [hostname, -s]
+      register: core50_hostname
+      changed_when: false
+
+    - name: Require the pinned CORE PVE identity
+      ansible.builtin.assert:
+        that: core50_hostname.stdout | trim == core50_expected_node
+        fail_msg: CORE50_PINNED_PVE_IDENTITY_MISMATCH
+
+    - name: Check central Media/PBS VM2243 is running
+      ansible.builtin.command:
+        argv: [qm, status, '2243']
+      register: core50_vm_status
+      changed_when: false
+
+    - name: Require the existing CORE PBS guest
+      ansible.builtin.assert:
+        that: "core50_vm_status.stdout | trim == 'status: running'"
+        fail_msg: CORE50_PBS_VM2243_NOT_RUNNING
+
+    - name: Query PBS datastores, remotes and pull sync jobs without changing them
+      ansible.builtin.command:
+        argv: "{{ ['qm', 'guest', 'exec', '2243', '--', 'proxmox-backup-manager'] + item.argv + ['--output-format', 'json'] }}"
+      loop:
+        - {label: datastore, argv: [datastore, list]}
+        - {label: remote, argv: [remote, list]}
+        - {label: pull_sync, argv: [sync-job, list]}
+      loop_control:
+        label: "{{ item.label }}"
+      register: core50_queries
+      changed_when: false
+      no_log: true
+
+    - name: Require complete successful responses from the trusted PBS guest
+      ansible.builtin.assert:
+        that:
+          - (item.stdout | from_json).exitcode | int == 0
+          - not ((item.stdout | from_json)['out-truncated'] | default(false) | bool)
+          - ((item.stdout | from_json)['out-data'] | trim).startswith('[')
+        fail_msg: CORE50_PBS_AUDIT_COMMAND_FAILED
+      loop: "{{ core50_queries.results }}"
+      loop_control:
+        label: "{{ item.item.label }}"
+      no_log: true
+
+    - name: Parse native PBS inventories
+      ansible.builtin.set_fact:
+        core50_datastores: "{{ ((core50_queries.results[0].stdout | from_json)['out-data'] | trim) | from_json }}"
+        core50_remotes: "{{ ((core50_queries.results[1].stdout | from_json)['out-data'] | trim) | from_json }}"
+        core50_sync_jobs: "{{ ((core50_queries.results[2].stdout | from_json)['out-data'] | trim) | from_json }}"
+      no_log: true
+
+    - name: Verify the dedicated central datastore was not replaced
+      ansible.builtin.assert:
+        that:
+          - (core50_datastores | selectattr('name', 'equalto', 'pbs-core') | list | length) == 1
+          - (core50_datastores | selectattr('name', 'equalto', 'pbs-core') | first).path == '/serzhan-pool/pbs-core'
+          - (core50_datastores | selectattr('name', 'equalto', 'pbs-serzhan') | list | length) == 1
+        fail_msg: CORE50_CENTRAL_DATASTORE_MISSING_OR_CHANGED
+
+    - name: Report read-only backup configuration status
+      ansible.builtin.debug:
+        msg:
+          - CORE50_MODE=AUDIT
+          - CORE50_PBS=dh-core/VM2243/192.168.11.243
+          - CORE50_DATASTORE=pbs-core
+          - "CORE50_REMOTE_COUNT={{ core50_remotes | length }}"
+          - "CORE50_PULL_SYNC_JOB_COUNT={{ core50_sync_jobs | length }}"
+          - CORE50_BACKUP_E2E=NOT_RUN
+          - CORE50_NEXT=Wait_for_HOME_Cloudflare_route_and_readonly_PBS_credentials
