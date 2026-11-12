@@ -417,23 +417,29 @@ been performed: the operator must explicitly select `cf-register` and
   Split Tunnel profile; then only enable WARP traffic forwarding
   in a separate guarded phase. Backup/PBS sync remains task #50.
 
-### CORE40 next stage: safe Posture only connect (12.11.2026)
+### CORE40 posture-only connection test — 12.11.2026
 
-A new `cf-posture-connect` action in task #40 uses the already
-registered Cloudflare One Client (VM2243). It checks effective
-`Mode: PostureOnly`, exact organization `digitalhouses` and
-registration before `warp-cli --accept-tos connect`. It then
-verifies `Connected`, unchanged route to HOME PBS, unchanged
-Internet route, unchanged `/etc/resolv.conf` SHA256 and active PBS
-proxy. A repeated run skips the connect command when already
-connected. This **does not** carry traffic to HOME.
+A temporary `cf-posture-connect` pilot was launched as Semaphore
+Job #41 after Job #40 updated the catalog. The WARP client remained
+registered, but the connection returned
+`Status update: Unable; Reason: Failed to set mTLS Identity`
+(`CF_FAILED_TO_SET_MTLS`). Job #41 correctly returned `error`;
+no Cloudflare private-network tunnel was established.
+Cloudflare documents this as an inability to provision a valid
+client certificate **specific to Posture only mode**.
+The client was explicitly disconnected again using
+`warp-cli --accept-tos disconnect`; independent checks confirm:
+`Disconnected / Manual Disconnection`,
+PBS proxy `active`, route to HOME `192.168.11.223` still via `eth0`.
 
-Live device settings before connection:
-- `Mode: PostureOnly` (locally enforced via `mdm.xml`).
-- Network policy is Cloudflare **default** Split Tunnels *Exclude*,
-  with `192.168.0.0/16` excluded. HOME `192.168.11.223/32`
-  would be excluded, so private tunnel activation must wait for a
-  dedicated CORE Include profile and HOME #70 private route.
-- Cloudflare API GET device profiles and Split Tunnel settings:
-  `403` with the CORE №05 API token. We cannot safely change
-  the profile programmatically under these permissions.
+Rather than enable unrelated mTLS certificate provisioning just
+to run a posture-only test, we removed the optional
+`cf-posture-connect` action. The already-successful
+`cf-register` device enrollment remains intact. For our real
+private-network objective the next necessary steps are **HOME #70**
+Cloudflare private route and a **CORE-specific Include device
+profile**, after which CORE #40 can safely enable traffic mode.
+The temporary failure was not a HOME or PBS backup failure.
+
+Cloudflare reference:
+https://developers.cloudflare.com/cloudflare-one/team-and-resources/devices/cloudflare-one-client/troubleshooting/client-errors/

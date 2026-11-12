@@ -28,7 +28,6 @@ tasks:
           - {name: "Проверить Cloudflare policy, private route и client (без изменений)", value: cf-audit}
           - {name: "Установить пакет Cloudflare One Client без регистрации и маршрутов", value: cf-install}
           - {name: "Зарегистрировать Cloudflare One Client (Posture only, без изменения маршрутов)", value: cf-register}
-          - {name: "Подключить зарегистрированный Cloudflare One Client — только Posture only", value: cf-posture-connect}
       - name: DH_CORE40_CF_ACCEPT_TOS
         title: "Согласие с Cloudflare One Client Terms of Service (только для регистрации)"
         type: enum
