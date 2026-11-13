@@ -125,3 +125,26 @@ Cloudflare и Tailscale обновлять в **разные** окна.
 - **Не выполнялись:** установка пакетов, вход в tailnet,
   настройка маршрутов, удаление WARP, запуск реального PBS Push/Restore
   и создание Semaphore Schedule обновлений.
+
+## Подключение CORE PVE (13.11.2026)
+
+- Job #68: `install/pve`, `success`, Tailscale stable `1.104.7`;
+  локальные DNS и default route не изменены.
+- Job #69: `join/pve` завершился до подключения, поскольку №71
+  некорректно читал native Ansible secret как environment variable;
+  исправлено в Git `eb1f4ae`.
+- Job #70: `join/pve` завершился с ошибкой неподдерживаемого
+  `--auto-update` в `tailscale up`; этот флаг теперь применяется
+  только командой `tailscale set` (Git `f488591`).
+- Job #71: `join/pve`, **success**, Tailscale `Running`,
+  assigned IP **`100.64.243.13`**, no DNS/default route changes,
+  `CorpDNS=false`, `RouteAll=false`, `AutoUpdate.Apply=false`,
+  exit node отсутствует. Temporary auth-key file удалён по playbook.
+- `tailscale ping`: `pve-shahristan` direct `192.168.11.220:41641`
+  (~1ms); `pve-jodar` через DERP(nyc), `pve-ruslan`
+  через DERP(waw). Для больших PBS Push Sync проверить реальный
+  throughput; не считать успешный ping гарантией direct.
+- CORE PBS VM2243 не изменён; `warp-svc` остаётся `active`.
+- Tailscale node сейчас показывается под автоматически определённым
+  именем `pve`; при необходимости задать уникальное имя в tailnet
+  отдельно, не меняя системный hostname Proxmox.
