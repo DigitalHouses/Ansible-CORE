@@ -20,7 +20,7 @@
           - core50_profile == 'core'
           - pve.ipv4 == '192.168.11.240'
           - pve.node | length > 0
-          - core50_action in ['audit', 'prepare']
+          - core50_action in ['audit', 'prepare', 'verify']
         fail_msg: CORE50_MUST_RUN_FROM_DH_CORE_SEMAPHORE
 
     - name: Register only the pinned CORE PVE
@@ -109,6 +109,10 @@
       ansible.builtin.include_tasks: ../tasks/core50-home-prepare.yml
       when: core50_action == 'prepare'
 
+    - name: Verify only received serzhan-home backups on CORE PBS
+      ansible.builtin.include_tasks: ../tasks/core50-home-verify.yml
+      when: core50_action == 'verify'
+
     - name: Report read-only backup configuration status
       ansible.builtin.debug:
         msg:
@@ -120,5 +124,5 @@
           - CORE50_TARGET_MODEL=HOME_PUSH_TO_CORE_PBS_PER_HOME_NAMESPACE
           - CORE50_HOME_TO_CORE_TRANSPORT=HOME34_TAILSCALE_ROUTE_VERIFIED_E2E_PENDING
           - CORE50_B2=DEFERRED
-          - CORE50_BACKUP_E2E=NOT_RUN
-          - CORE50_NEXT=Validate_HOME_TO_CORE_PRIVATE_HTTPS_THEN_HOME_PUSH_SYNC
+          - "CORE50_BACKUP_E2E={{ 'PUSH_AND_VERIFY_COMPLETE_RESTORE_PENDING' if core50_action == 'verify' else 'SEE_HOME34_PUSH_AND_CORE_VERIFY_LOGS' }}"
+          - "CORE50_NEXT={{ 'HOME34_RESTORE_STORAGE_AND_TEST_RESTORE' if core50_action == 'verify' else 'CORE50_VERIFY_AFTER_HOME34_PUSH' }}"
