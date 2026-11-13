@@ -83,6 +83,37 @@ Prune/Modify или доступ к `pbs-serzhan`.
 - HOME №34 Job #122 (по передаче HOME): маршрут Tailscale готов,
   но Remote, Push Job, snapshots и E2E ещё отсутствуют.
 
+## CORE №50 — штатный ручной Verify полученных HOME snapshots
+
+После успешных HOME №34 Jobs **#133** (первый Push) и **#134**
+(повторный Push) проверены на CORE PBS **21 snapshot** в
+`pbs-core/serzhan-home` (8 VM + 13 CT).
+Это подтверждает доставку, но **не** Verify/Restore.
+
+Добавлен Survey `DH_CORE50_ACTION=verify` (действие 03):
+создаёт один native `proxmox-backup-manager verify-job` с ID
+`core50-serzhan-home`, только если такого задания ещё нет:
+
+- `store=pbs-core`
+- `ns=serzhan-home`
+- `max-depth=0` — другие namespaces не затрагиваются
+- `ignore-verified=true` — повторная проверка пропускает свежие успешные
+- `read-threads=1, verify-threads=2` — умеренная нагрузка
+- без `schedule`: проверка только по явному запуску №50
+
+Перед выполнением проверяет фактические snapshot manifests, наличие
+namespace, конфигурацию существующего verify-job; не переписывает
+конфликтующие настройки. Используется штатный PBS Verify
+через QEMU Guest Agent VM2243; команда ожидает итоговый `TASK OK`.
+Ни prune, ни GC, ни перезапись, ни изменение legacy
+`pbs-serzhan` не выполняется.
+
+После успешного Verify остаётся HOME №34 `restore-storage` и
+отдельный Restore в свободный тестовый VMID. До Restore E2E
+не считается полностью принятым.
+
+---
+
 ## Следующий этап — HOME №34 и E2E
 
 1. **Доверенный оператор CORE** извлекает две пары `tokenid/value`
