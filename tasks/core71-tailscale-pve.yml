@@ -1,0 +1,181 @@
+---
+- name: Record CORE PVE default route before Tailscale operation
+  ansible.builtin.command:
+    argv: [ip, -4, route, get, '1.1.1.1']
+  register: core71_pve_route_before
+  changed_when: false
+
+- name: Record CORE PVE local DNS before Tailscale operation
+  ansible.builtin.slurp:
+    src: /etc/resolv.conf
+  register: core71_pve_dns_before
+
+- name: Confirm CORE PVE Debian package family
+  ansible.builtin.slurp:
+    src: /etc/os-release
+  register: core71_pve_os
+
+- name: Require currently supported CORE PVE Debian 12 release for package changes
+  ansible.builtin.assert:
+    that: "'VERSION_CODENAME=bookworm' in (core71_pve_os.content | b64decode)"
+    fail_msg: CORE71_PVE_DEBIAN_RELEASE_REQUIRES_REVIEW
+  when: core71_action in ['install', 'update']
+
+- name: Read installed CORE PVE Tailscale package
+  ansible.builtin.command:
+    argv: [dpkg-query, -W, '-f=${Version}', tailscale]
+  register: core71_pve_package_before
+  failed_when: false
+  changed_when: false
+
+- name: Require installed CORE PVE client before configure or join
+  ansible.builtin.assert:
+    that: core71_pve_package_before.rc == 0
+    fail_msg: CORE71_PVE_INSTALL_TAILSCALE_FIRST
+  when: core71_action in ['configure', 'join']
+
+- name: Add official stable Tailscale key to CORE PVE
+  ansible.builtin.get_url:
+    url: https://pkgs.tailscale.com/stable/debian/bookworm.noarmor.gpg
+    dest: /usr/share/keyrings/tailscale-archive-keyring.gpg
+    mode: '0644'
+  when: core71_action == 'install' or (core71_action == 'update' and core71_pve_package_before.rc == 0)
+
+- name: Add official stable Tailscale APT source to CORE PVE
+  ansible.builtin.get_url:
+    url: https://pkgs.tailscale.com/stable/debian/bookworm.tailscale-keyring.list
+    dest: /etc/apt/sources.list.d/tailscale.list
+    mode: '0644'
+  when: core71_action == 'install' or (core71_action == 'update' and core71_pve_package_before.rc == 0)
+
+- name: Install only CORE PVE Tailscale package
+  ansible.builtin.apt:
+    name: tailscale
+    state: present
+    update_cache: true
+  when: core71_action == 'install'
+
+- name: Upgrade only CORE PVE Tailscale package
+  ansible.builtin.apt:
+    name: tailscale
+    state: latest
+    only_upgrade: true
+    update_cache: true
+  when:
+    - core71_action == 'update'
+    - core71_pve_package_before.rc == 0
+
+- name: Keep CORE PVE tailscaled enabled after installation or upgrade
+  ansible.builtin.systemd:
+    name: tailscaled
+    enabled: true
+    state: started
+  when:
+    - core71_action in ['install', 'update']
+    - core71_action == 'install' or core71_pve_package_before.rc == 0
+
+- name: Read CORE PVE Tailscale installation after package operation
+  ansible.builtin.command:
+    argv: [dpkg-query, -W, '-f=${Version}', tailscale]
+  register: core71_pve_package_after
+  failed_when: false
+  changed_when: false
+
+- name: Read CORE PVE Tailscale connectivity without forcing login
+  ansible.builtin.command:
+    argv: [tailscale, status, --json]
+  register: core71_pve_status_before
+  failed_when: false
+  changed_when: false
+  when: core71_pve_package_after.rc == 0
+
+- name: Ensure CORE PVE is joined before configuring preferences
+  ansible.builtin.assert:
+    that:
+      - core71_pve_status_before.rc == 0
+      - (core71_pve_status_before.stdout | from_json).BackendState == 'Running'
+    fail_msg: CORE71_PVE_JOIN_TAILNET_FIRST
+  when: core71_action == 'configure'
+
+- name: Join existing tailnet on CORE PVE using secret from CORE task 05
+  when:
+    - core71_action == 'join'
+    - core71_pve_status_before.rc != 0 or (core71_pve_status_before.stdout | from_json).BackendState != 'Running'
+  block:
+    - name: Create temporary Tailscale auth-key file on CORE PVE
+      ansible.builtin.copy:
+        dest: /run/dh-core71-tailscale-auth-key
+        content: "{{ core71_auth_key }}"
+        owner: root
+        group: root
+        mode: '0600'
+      no_log: true
+
+    - name: Authorize CORE PVE without accepting DNS or subnet routes
+      ansible.builtin.command:
+        argv:
+          - tailscale
+          - up
+          - --auth-key=file:/run/dh-core71-tailscale-auth-key
+          - --accept-dns=false
+          - --accept-routes=false
+          - --exit-node=
+          - --advertise-exit-node=false
+          - --advertise-routes=
+          - --auto-update=false
+      no_log: true
+  always:
+    - name: Remove temporary Tailscale key from CORE PVE
+      ansible.builtin.file:
+        path: /run/dh-core71-tailscale-auth-key
+        state: absent
+      no_log: true
+
+- name: Apply CORE PVE safe Tailscale preferences
+  ansible.builtin.command:
+    argv:
+      - tailscale
+      - set
+      - --accept-dns=false
+      - --accept-routes=false
+      - --exit-node=
+      - --advertise-exit-node=false
+      - --advertise-routes=
+      - --auto-update=false
+  when: core71_action in ['configure', 'join'] and core71_pve_package_after.rc == 0
+  changed_when: core71_action == 'configure'
+
+- name: Read CORE PVE route after Tailscale operation
+  ansible.builtin.command:
+    argv: [ip, -4, route, get, '1.1.1.1']
+  register: core71_pve_route_after
+  changed_when: false
+
+- name: Read CORE PVE DNS after Tailscale operation
+  ansible.builtin.slurp:
+    src: /etc/resolv.conf
+  register: core71_pve_dns_after
+
+- name: Refuse CORE PVE DNS or default-route changes
+  ansible.builtin.assert:
+    that:
+      - core71_pve_route_after.stdout == core71_pve_route_before.stdout
+      - core71_pve_dns_after.content == core71_pve_dns_before.content
+    fail_msg: CORE71_PVE_DNS_OR_DEFAULT_ROUTE_CHANGED
+
+- name: Read CORE PVE Tailscale status after operation
+  ansible.builtin.command:
+    argv: [tailscale, status, --json]
+  register: core71_pve_status_after
+  failed_when: false
+  changed_when: false
+  when: core71_pve_package_after.rc == 0
+
+- name: Report CORE PVE Tailscale state
+  ansible.builtin.debug:
+    msg:
+      - "CORE71_TARGET=CORE_PVE_192.168.11.240"
+      - "CORE71_ACTION={{ core71_action }}"
+      - "CORE71_PACKAGE={{ core71_pve_package_after.stdout if core71_pve_package_after.rc == 0 else 'NOT_INSTALLED' }}"
+      - "CORE71_TAILNET={{ (core71_pve_status_after.stdout | from_json).BackendState if core71_pve_package_after.rc == 0 and core71_pve_status_after.rc == 0 else 'NOT_CONNECTED' }}"
+      - CORE71_DEFAULT_ROUTE_AND_DNS=UNCHANGED

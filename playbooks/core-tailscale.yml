@@ -1,0 +1,75 @@
+---
+# 71 | Tailscale only on CORE PVE (192.168.11.240) and CORE PBS VM2243.
+# No HOME changes, no WARP deletion, no global apt upgrade.
+- name: "71 | Resolve CORE-only Tailscale action"
+  hosts: runner
+  connection: local
+  gather_facts: false
+  vars_files:
+    - /etc/digitalhouses/pve.yml
+  vars:
+    core71_action: "{{ DH_CORE71_ACTION | default('audit', true) }}"
+    core71_target: "{{ DH_CORE71_TARGET | default('both', true) }}"
+    core71_site: "{{ lookup('ansible.builtin.file', '/etc/digitalhouses/site-id') | trim }}"
+    core71_profile: "{{ lookup('ansible.builtin.file', '/etc/digitalhouses/site-profile') | trim }}"
+    core71_auth_key: "{{ lookup('ansible.builtin.env', 'DH_TAILSCALE_AUTH_KEY') }}"
+  tasks:
+    - name: Require CORE Semaphore, pinned PVE and known action
+      ansible.builtin.assert:
+        that:
+          - core71_site == 'dh-core'
+          - core71_profile == 'core'
+          - pve.ipv4 == '192.168.11.240'
+          - pve.node | length > 0
+          - core71_action in ['audit', 'install', 'configure', 'join', 'update']
+          - core71_target in ['pve', 'pbs', 'both']
+        fail_msg: CORE71_WRONG_RUNNER_OR_INVALID_ACTION
+
+    - name: Require credential from CORE task 05 for noninteractive join
+      ansible.builtin.assert:
+        that: core71_auth_key | length > 0
+        fail_msg: CORE71_TAILSCALE_AUTH_KEY_MISSING_IN_CORE05
+      when: core71_action == 'join'
+      no_log: true
+
+    - name: Register only the pinned CORE PVE management node
+      ansible.builtin.add_host:
+        name: core71_pve
+        groups: core71_pve_group
+        ansible_host: "{{ pve.ipv4 }}"
+        ansible_user: root
+        ansible_connection: ssh
+        ansible_python_interpreter: /usr/bin/python3
+        ansible_ssh_private_key_file: /var/lib/semaphore/.ssh/id_ed25519
+        ansible_ssh_common_args: >-
+          -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes
+          -o UserKnownHostsFile=/var/lib/semaphore/.ssh/known_hosts
+        core71_action: "{{ core71_action }}"
+        core71_target: "{{ core71_target }}"
+        core71_expected_node: "{{ pve.node }}"
+        core71_auth_key: "{{ core71_auth_key if core71_action == 'join' else '' }}"
+      no_log: true
+      changed_when: false
+
+- name: "71 | Manage only CORE PVE and PBS Tailscale clients"
+  hosts: core71_pve_group
+  gather_facts: false
+  tasks:
+    - name: Verify CORE PVE identity before operating
+      ansible.builtin.command:
+        argv: [hostname, -s]
+      register: core71_actual_host
+      changed_when: false
+
+    - name: Reject another Proxmox host
+      ansible.builtin.assert:
+        that: core71_actual_host.stdout | trim == core71_expected_node
+        fail_msg: CORE71_WRONG_PVE_HOST
+
+    - name: Operate Tailscale on CORE PVE
+      ansible.builtin.include_tasks: ../tasks/core71-tailscale-pve.yml
+      when: core71_target in ['pve', 'both']
+
+    - name: Operate Tailscale inside CORE PBS VM2243 via QEMU Guest Agent
+      ansible.builtin.include_tasks: ../tasks/core71-tailscale-pbs.yml
+      when: core71_target in ['pbs', 'both']

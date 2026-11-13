@@ -9,6 +9,8 @@ Independent native Ansible + existing Semaphore for central **dh-core** infrastr
 - **50-Central Backup** — audit central PBS and operate per-HOME namespaces,
   retention, Prune, Verify, GC, freshness monitoring and E2E restore.
   HOME initiates native **Push Sync** into CORE; no CORE Pull Jobs.
+- **71-Tailscale** — manage CORE PVE/PBS Tailscale client via separate audit,
+  install, configure, join and stable-only update actions; no WARP removal.
 
 HOME setup, HOME Media Server and HOME Cloudflare tunnel are **excluded**.
 CORE never provisions HOME from this repository. CORE → HOME Cloudflare
@@ -18,6 +20,6 @@ Backblaze B2 is deferred (source HOME vs CORE not decided).
 
 See `bootstrap/README.md`, `docs/repository-split.md`,
 `docs/task05-credentials.md`, `docs/task40-central-pbs.md`,
-`docs/architecture-central-backup.md` (architecture source of truth)
-and `docs/task50-central-backup.md`.
+`docs/architecture-central-backup.md` (architecture source of truth),
+`docs/task50-central-backup.md` and `docs/task71-tailscale.md`.
 Original source: `DigitalHouses/Ansible-3` is archived for history.

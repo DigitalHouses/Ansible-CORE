@@ -12,6 +12,7 @@ tasks:
       - {name: DH_INPUT_CLOUDFLARE_TEAM_NAME, title: "Cloudflare Zero Trust — team name (пусто — сохранить прежнее)", type: "", target: env, required: false, values: []}
       - {name: DH_INPUT_CLOUDFLARE_ENROLL_CLIENT_ID, title: "Cloudflare One — enrollment Service Token Client ID (пусто — сохранить прежний)", type: secret, target: env, required: false, values: []}
       - {name: DH_INPUT_CLOUDFLARE_ENROLL_CLIENT_SECRET, title: "Cloudflare One — enrollment Service Token Client Secret (пусто — сохранить прежний)", type: secret, target: env, required: false, values: []}
+      - {name: DH_INPUT_TAILSCALE_AUTH_KEY, title: "Tailscale — auth key для CORE PVE/PBS (пусто — сохранить прежний)", type: secret, target: env, required: false, values: []}
   - name: 40-CORE Infrastructure
     playbook: playbooks/core-pbs.yml
     description: "Audit CORE PVE/PBS infrastructure or prepare pbs-core; no backup synchronization"
@@ -44,3 +45,29 @@ tasks:
   - name: 50-Central Backup
     playbook: playbooks/core-backup.yml
     description: "Read-only audit of CORE PBS; HOME Push Sync into per-HOME namespaces, central Verify/Prune/Restore planned"
+  - name: 71-Tailscale
+    playbook: playbooks/core-tailscale.yml
+    description: "CORE PVE + PBS: audit, install, configure, join, update stable Tailscale without altering DNS/default route; WARP migration separate"
+    survey_vars:
+      - name: DH_CORE71_ACTION
+        title: "Tailscale — действие"
+        type: enum
+        target: ""
+        required: true
+        default_value: audit
+        values:
+          - {name: "Проверить состояние без изменений", value: audit}
+          - {name: "Установить пакет Tailscale (без регистрации)", value: install}
+          - {name: "Настроить DNS/маршруты на подключённом узле", value: configure}
+          - {name: "Подключить к tailnet (auth key из №05; PBS только без WARP)", value: join}
+          - {name: "Обновить только пакет Tailscale", value: update}
+      - name: DH_CORE71_TARGET
+        title: "Узел CORE"
+        type: enum
+        target: ""
+        required: true
+        default_value: both
+        values:
+          - {name: "Оба узла последовательно", value: both}
+          - {name: "Только CORE PVE", value: pve}
+          - {name: "Только CORE PBS VM2243", value: pbs}

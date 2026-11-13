@@ -26,6 +26,7 @@
 | Cloudflare Zero Trust team name | `DH_CLOUDFLARE_TEAM_NAME` | env |
 | Cloudflare One enrollment Service Token Client ID | `DH_CLOUDFLARE_ENROLL_CLIENT_ID` | secret |
 | Cloudflare One enrollment Service Token Client Secret | `DH_CLOUDFLARE_ENROLL_CLIENT_SECRET` | secret |
+| Tailscale registration auth key (добавлено 13.11.2026) | `DH_TAILSCALE_AUTH_KEY` | secret |
 
 API Token проверяется через стандартный Cloudflare endpoint
 `/user/tokens/verify`, если токен доступен в задаче. Это **не**
@@ -33,16 +34,23 @@ API Token проверяется через стандартный Cloudflare en
 Client ID/Secret проверяется без попытки регистрировать устройство;
 их действительность проверим при фактическом enrollment в CORE №40.
 
-## Следующие расширения
+## Расширение 13.11.2026 — Tailscale
 
-Для CORE №50 добавим read-only PBS source identity/tokens каждого
-готового HOME. HOME создаёт и выдаёт эти credentials в своём
-профильном проекте; CORE №05 сохраняет их для своих задач.
-PBS Remote, Pull Sync, Verify и restore — зона ответственности №50.
+Добавлен native secret `DH_TAILSCALE_AUTH_KEY` в ту же группу
+через Survey `DH_INPUT_TAILSCALE_AUTH_KEY`. Только CORE №71
+`join` использует его для регистрации нового CORE PVE/PBS в
+существующем tailnet. Приоритет одноразовым auth keys; вводить ключ
+только при подключении нового узла. В остальных действиях №71
+ключ не нужен.
 
-Не хранить Cloudflare/PBS secrets в репозитории, файлах в DEV,
-командной строке и журналах. Не копировать существующие HOME
-credentials без отдельной операции.
+**Изменение архитектуры №50:** ранее планировавшиеся read-only HOME
+PBS токены для CORE Pull **больше не требуются**. Теперь HOME
+инициирует Push в CORE, CORE №50 управляет своими namespaces и
+полученными backup; будущие токены записи HOME в CORE проектируются
+отдельно от общего сетевого auth key Tailscale.
+
+Не хранить Tailscale/Cloudflare/PBS secrets в репозитории, файлах DEV,
+командной строке и журналах.
 
 ## Приёмка
 

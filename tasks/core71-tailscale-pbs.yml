@@ -1,0 +1,295 @@
+---
+# CORE PBS is VM2243, reached only through QEMU Guest Agent on pinned PVE.
+# Do not open another SSH ingress or change PBS networking.
+- name: Confirm CORE PBS VM2243 is running
+  ansible.builtin.command:
+    argv: [qm, status, '2243']
+  register: core71_pbs_vm
+  changed_when: false
+
+- name: Require existing CORE PBS guest
+  ansible.builtin.assert:
+    that: "core71_pbs_vm.stdout | trim == 'status: running'"
+    fail_msg: CORE71_PBS_VM2243_NOT_RUNNING
+
+- name: Read CORE PBS hostname
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, hostname, -s]
+  register: core71_pbs_hostname
+  changed_when: false
+
+- name: Require operating QEMU Guest Agent and guest identity
+  ansible.builtin.assert:
+    that:
+      - (core71_pbs_hostname.stdout | from_json).exitcode | int == 0
+      - (core71_pbs_hostname.stdout | from_json)['out-data'] | trim | length > 0
+    fail_msg: CORE71_PBS_GUEST_AGENT_UNAVAILABLE
+
+- name: Read CORE PBS default route before operation
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, ip, -4, route, get, '1.1.1.1']
+  register: core71_pbs_route_before
+  changed_when: false
+
+- name: Read CORE PBS DNS configuration before operation
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, resolvectl, dns]
+  register: core71_pbs_dns_before
+  changed_when: false
+
+- name: Require readable route and DNS
+  ansible.builtin.assert:
+    that:
+      - (core71_pbs_route_before.stdout | from_json).exitcode | int == 0
+      - (core71_pbs_dns_before.stdout | from_json).exitcode | int == 0
+    fail_msg: CORE71_PBS_NETWORK_BASELINE_UNAVAILABLE
+
+- name: Read CORE PBS Cloudflare WARP service state
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, systemctl, is-active, warp-svc]
+  register: core71_pbs_warp
+  changed_when: false
+
+- name: Forbid tailnet join beside active Cloudflare WARP in CORE PBS
+  ansible.builtin.assert:
+    that: (core71_pbs_warp.stdout | from_json).exitcode | int != 0
+    fail_msg: CORE71_PBS_WARP_ACTIVE_MIGRATE_SEPARATELY_BEFORE_JOIN
+  when: core71_action in ['join', 'configure']
+
+- name: Read CORE PBS Debian release when package operation requested
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, cat, /etc/os-release]
+  register: core71_pbs_os
+  changed_when: false
+  when: core71_action in ['install', 'update']
+
+- name: Require currently supported CORE PBS Debian 13
+  ansible.builtin.assert:
+    that:
+      - (core71_pbs_os.stdout | from_json).exitcode | int == 0
+      - "'VERSION_CODENAME=trixie' in (core71_pbs_os.stdout | from_json)['out-data']"
+    fail_msg: CORE71_PBS_DEBIAN_RELEASE_REQUIRES_REVIEW
+  when: core71_action in ['install', 'update']
+
+- name: Read CORE PBS installed Tailscale version
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, dpkg-query, -W, '-f=${Version}', tailscale]
+  register: core71_pbs_package_before
+  changed_when: false
+
+- name: Require installed CORE PBS client before configuration or join
+  ansible.builtin.assert:
+    that: (core71_pbs_package_before.stdout | from_json).exitcode | int == 0
+    fail_msg: CORE71_PBS_INSTALL_TAILSCALE_FIRST
+  when: core71_action in ['join', 'configure']
+
+- name: Download official stable Tailscale key inside CORE PBS
+  ansible.builtin.command:
+    argv:
+      - qm
+      - guest
+      - exec
+      - '2243'
+      - --
+      - curl
+      - --fail
+      - --silent
+      - --show-error
+      - --location
+      - --output
+      - /usr/share/keyrings/tailscale-archive-keyring.gpg
+      - https://pkgs.tailscale.com/stable/debian/trixie.noarmor.gpg
+  register: core71_pbs_key_fetch
+  changed_when: false
+  failed_when: (core71_pbs_key_fetch.stdout | from_json).exitcode | int != 0
+  when: core71_action == 'install' or (core71_action == 'update' and (core71_pbs_package_before.stdout | from_json).exitcode | int == 0)
+
+- name: Download official stable Tailscale source inside CORE PBS
+  ansible.builtin.command:
+    argv:
+      - qm
+      - guest
+      - exec
+      - '2243'
+      - --
+      - curl
+      - --fail
+      - --silent
+      - --show-error
+      - --location
+      - --output
+      - /etc/apt/sources.list.d/tailscale.list
+      - https://pkgs.tailscale.com/stable/debian/trixie.tailscale-keyring.list
+  register: core71_pbs_source_fetch
+  changed_when: false
+  failed_when: (core71_pbs_source_fetch.stdout | from_json).exitcode | int != 0
+  when: core71_action == 'install' or (core71_action == 'update' and (core71_pbs_package_before.stdout | from_json).exitcode | int == 0)
+
+- name: Refresh package index only in CORE PBS for Tailscale operation
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --timeout, '0', --, apt-get, update, -qq]
+  register: core71_pbs_apt_index
+  changed_when: false
+  failed_when: (core71_pbs_apt_index.stdout | from_json).exitcode | int != 0
+  when: core71_action == 'install' or (core71_action == 'update' and (core71_pbs_package_before.stdout | from_json).exitcode | int == 0)
+
+- name: Install only Tailscale inside CORE PBS
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --timeout, '0', --, apt-get, install, -y, tailscale]
+  register: core71_pbs_install_result
+  changed_when: core71_pbs_install_result.stdout is defined and ((core71_pbs_install_result.stdout | from_json).exitcode | int == 0)
+  failed_when: (core71_pbs_install_result.stdout | from_json).exitcode | int != 0
+  when:
+    - core71_action == 'install'
+    - (core71_pbs_package_before.stdout | from_json).exitcode | int != 0
+
+- name: Upgrade only existing Tailscale package inside CORE PBS
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --timeout, '0', --, apt-get, install, -y, --only-upgrade, tailscale]
+  register: core71_pbs_upgrade_result
+  changed_when: false
+  failed_when: (core71_pbs_upgrade_result.stdout | from_json).exitcode | int != 0
+  when:
+    - core71_action == 'update'
+    - (core71_pbs_package_before.stdout | from_json).exitcode | int == 0
+
+- name: Keep CORE PBS tailscaled service running after package operation
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, systemctl, enable, --now, tailscaled]
+  register: core71_pbs_service
+  changed_when: false
+  failed_when: (core71_pbs_service.stdout | from_json).exitcode | int != 0
+  when:
+    - core71_action == 'install'
+    - (core71_pbs_package_before.stdout | from_json).exitcode | int != 0
+
+- name: Read CORE PBS installed Tailscale package after operation
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, dpkg-query, -W, '-f=${Version}', tailscale]
+  register: core71_pbs_package_after
+  changed_when: false
+
+- name: Read CORE PBS tailnet state if client installed
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, tailscale, status, --json]
+  register: core71_pbs_status_before
+  changed_when: false
+  when: (core71_pbs_package_after.stdout | from_json).exitcode | int == 0
+
+- name: Verify CORE PBS already joined before configuring
+  ansible.builtin.assert:
+    that:
+      - (core71_pbs_status_before.stdout | from_json).exitcode | int == 0
+      - ((core71_pbs_status_before.stdout | from_json)['out-data'] | from_json).BackendState == 'Running'
+    fail_msg: CORE71_PBS_JOIN_TAILNET_FIRST
+  when: core71_action == 'configure'
+
+- name: Join existing tailnet on CORE PBS with secret transported over QEMU Guest Agent
+  when:
+    - core71_action == 'join'
+    - ((core71_pbs_status_before.stdout | from_json)['out-data'] | from_json).BackendState != 'Running'
+  block:
+    - name: Write temporary Tailscale auth-key to CORE PBS through guest stdin
+      ansible.builtin.command:
+        argv:
+          - qm
+          - guest
+          - exec
+          - '2243'
+          - --pass-stdin
+          - '1'
+          - --
+          - sh
+          - -c
+          - 'umask 077; cat > /run/dh-core71-tailscale-auth-key'
+        stdin: "{{ core71_auth_key }}"
+        stdin_add_newline: false
+      register: core71_pbs_key_upload
+      failed_when: (core71_pbs_key_upload.stdout | from_json).exitcode | int != 0
+      no_log: true
+
+    - name: Authorize CORE PBS without changing DNS or default route
+      ansible.builtin.command:
+        argv:
+          - qm
+          - guest
+          - exec
+          - '2243'
+          - --timeout
+          - '0'
+          - --
+          - tailscale
+          - up
+          - --auth-key=file:/run/dh-core71-tailscale-auth-key
+          - --accept-dns=false
+          - --accept-routes=false
+          - --exit-node=
+          - --advertise-exit-node=false
+          - --advertise-routes=
+          - --auto-update=false
+      register: core71_pbs_join_result
+      failed_when: (core71_pbs_join_result.stdout | from_json).exitcode | int != 0
+      no_log: true
+  always:
+    - name: Erase temporary auth-key from CORE PBS
+      ansible.builtin.command:
+        argv: [qm, guest, exec, '2243', --, rm, -f, /run/dh-core71-tailscale-auth-key]
+      no_log: true
+      changed_when: false
+
+- name: Apply CORE PBS safe Tailscale preferences
+  ansible.builtin.command:
+    argv:
+      - qm
+      - guest
+      - exec
+      - '2243'
+      - --
+      - tailscale
+      - set
+      - --accept-dns=false
+      - --accept-routes=false
+      - --exit-node=
+      - --advertise-exit-node=false
+      - --advertise-routes=
+      - --auto-update=false
+  register: core71_pbs_preferences
+  failed_when: (core71_pbs_preferences.stdout | from_json).exitcode | int != 0
+  changed_when: core71_action == 'configure'
+  when: core71_action in ['configure', 'join']
+
+- name: Read CORE PBS route after operation
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, ip, -4, route, get, '1.1.1.1']
+  register: core71_pbs_route_after
+  changed_when: false
+
+- name: Read CORE PBS DNS after operation
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, resolvectl, dns]
+  register: core71_pbs_dns_after
+  changed_when: false
+
+- name: Reject changed CORE PBS default route or DNS
+  ansible.builtin.assert:
+    that:
+      - (core71_pbs_route_after.stdout | from_json)['out-data'] == (core71_pbs_route_before.stdout | from_json)['out-data']
+      - (core71_pbs_dns_after.stdout | from_json)['out-data'] == (core71_pbs_dns_before.stdout | from_json)['out-data']
+    fail_msg: CORE71_PBS_DNS_OR_DEFAULT_ROUTE_CHANGED
+
+- name: Read CORE PBS Tailscale final state
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, tailscale, status, --json]
+  register: core71_pbs_status_after
+  changed_when: false
+  when: (core71_pbs_package_after.stdout | from_json).exitcode | int == 0
+
+- name: Report CORE PBS Tailscale state without secrets
+  ansible.builtin.debug:
+    msg:
+      - CORE71_TARGET=CORE_PBS_VM2243_192.168.11.243
+      - "CORE71_ACTION={{ core71_action }}"
+      - "CORE71_PACKAGE={{ (core71_pbs_package_after.stdout | from_json).get('out-data', 'NOT_INSTALLED') | trim if (core71_pbs_package_after.stdout | from_json).exitcode | int == 0 else 'NOT_INSTALLED' }}"
+      - "CORE71_WARP={{ 'ACTIVE' if (core71_pbs_warp.stdout | from_json).exitcode | int == 0 else 'INACTIVE' }}"
+      - "CORE71_TAILNET={{ ((core71_pbs_status_after.stdout | from_json)['out-data'] | from_json).BackendState if (core71_pbs_package_after.stdout | from_json).exitcode | int == 0 and (core71_pbs_status_after.stdout | from_json).exitcode | int == 0 else 'NOT_CONNECTED' }}"
+      - CORE71_DEFAULT_ROUTE_AND_DNS=UNCHANGED
