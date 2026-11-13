@@ -122,7 +122,6 @@
           - --exit-node=
           - --advertise-exit-node=false
           - --advertise-routes=
-          - --auto-update=false
       no_log: true
   always:
     - name: Remove temporary Tailscale key from CORE PVE

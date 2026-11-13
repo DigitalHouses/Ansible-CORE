@@ -226,7 +226,6 @@
           - --exit-node=
           - --advertise-exit-node=false
           - --advertise-routes=
-          - --auto-update=false
       register: core71_pbs_join_result
       failed_when: (core71_pbs_join_result.stdout | from_json).exitcode | int != 0
       no_log: true
