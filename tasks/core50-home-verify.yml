@@ -1,0 +1,166 @@
+---
+# CORE50: run native PBS Verify ONLY for received HOME namespace.
+# Preserve datastore, chunks, backup jobs, ZFS, ACLs and legacy verify schedules.
+- name: Check serzhan-home namespace exists on the approved CORE datastore
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, test, -d, /serzhan-pool/pbs-core/ns/serzhan-home]
+  register: core50_verify_ns
+  changed_when: false
+
+- name: Require exact existing receiving namespace before Verify
+  ansible.builtin.assert:
+    that:
+      - core50_verify_ns.rc == 0
+      - (core50_verify_ns.stdout | from_json).exitcode | int == 0
+    fail_msg: CORE50_VERIFY_NAMESPACE_NOT_PRESENT
+
+- name: Read real backup manifests in this namespace without touching them
+  ansible.builtin.command:
+    argv:
+      - qm
+      - guest
+      - exec
+      - '2243'
+      - --
+      - find
+      - /serzhan-pool/pbs-core/ns/serzhan-home
+      - -type
+      - f
+      - -name
+      - index.json.blob
+  register: core50_verify_manifests
+  changed_when: false
+
+- name: Count only received snapshot manifests and reject empty or truncated results
+  ansible.builtin.set_fact:
+    core50_verify_snapshot_paths: "{{ (core50_verify_manifests.stdout | from_json)['out-data'].splitlines() }}"
+  when:
+    - core50_verify_manifests.rc == 0
+    - (core50_verify_manifests.stdout | from_json).exitcode | int == 0
+    - not ((core50_verify_manifests.stdout | from_json)['out-truncated'] | default(false) | bool)
+
+- name: Refuse empty or unreadable snapshot inventory
+  ansible.builtin.assert:
+    that:
+      - core50_verify_snapshot_paths | default([]) | length > 0
+      - >-
+        core50_verify_snapshot_paths | reject('match',
+          '^/serzhan-pool/pbs-core/ns/serzhan-home/(vm|ct|host)/[^/]+/[^/]+/index\.json\.blob$')
+        | list | length == 0
+    fail_msg: CORE50_VERIFY_NO_VALID_HOME_SNAPSHOTS
+
+- name: Read existing native CORE PBS verification jobs
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, proxmox-backup-manager, verify-job, list, --output-format, json]
+  register: core50_verify_jobs_before
+  changed_when: false
+
+- name: Identify only managed HOME namespace verification job
+  ansible.builtin.set_fact:
+    core50_verify_job_id: core50-serzhan-home
+    core50_verify_existing_jobs: >-
+      {{ (((core50_verify_jobs_before.stdout | from_json)['out-data']) | from_json)
+         | selectattr('id', 'equalto', 'core50-serzhan-home') | list }}
+  when:
+    - core50_verify_jobs_before.rc == 0
+    - (core50_verify_jobs_before.stdout | from_json).exitcode | int == 0
+    - not ((core50_verify_jobs_before.stdout | from_json)['out-truncated'] | default(false) | bool)
+
+- name: Refuse an existing Verify job with broader scope, altered target or schedule
+  ansible.builtin.assert:
+    that:
+      - core50_verify_existing_jobs | default([]) | length <= 1
+      - >-
+        core50_verify_existing_jobs | default([]) | length == 0 or
+        (core50_verify_existing_jobs[0].store == 'pbs-core' and
+         core50_verify_existing_jobs[0].ns == 'serzhan-home' and
+         core50_verify_existing_jobs[0]['max-depth'] | int == 0 and
+         core50_verify_existing_jobs[0]['ignore-verified'] | bool and
+         (core50_verify_existing_jobs[0].schedule | default('', true)) == '')
+    fail_msg: CORE50_VERIFY_JOB_SCOPE_CONFLICT
+
+- name: Register a manual namespace-only Verify job once without creating a schedule
+  ansible.builtin.command:
+    argv:
+      - qm
+      - guest
+      - exec
+      - '2243'
+      - --
+      - proxmox-backup-manager
+      - verify-job
+      - create
+      - core50-serzhan-home
+      - --store
+      - pbs-core
+      - --ns
+      - serzhan-home
+      - --max-depth
+      - '0'
+      - --ignore-verified
+      - 'true'
+      - --read-threads
+      - '1'
+      - --verify-threads
+      - '2'
+  register: core50_verify_create
+  changed_when: true
+  failed_when: >-
+    core50_verify_create.rc != 0 or
+    (core50_verify_create.stdout | default('{}', true) | from_json).get('exitcode', 1) | int != 0
+  when: core50_verify_existing_jobs | length == 0
+
+- name: Read back native Verify configuration after possible creation
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, proxmox-backup-manager, verify-job, show, core50-serzhan-home, --output-format, json]
+  register: core50_verify_config
+  changed_when: false
+
+- name: Require exact namespace-only manual Verify configuration
+  ansible.builtin.assert:
+    that:
+      - core50_verify_config.rc == 0
+      - (core50_verify_config.stdout | from_json).exitcode | int == 0
+      - >-
+        (((core50_verify_config.stdout | from_json)['out-data']) | from_json).store == 'pbs-core'
+      - >-
+        (((core50_verify_config.stdout | from_json)['out-data']) | from_json).ns == 'serzhan-home'
+      - >-
+        (((core50_verify_config.stdout | from_json)['out-data']) | from_json)['max-depth'] | int == 0
+      - >-
+        (((core50_verify_config.stdout | from_json)['out-data']) | from_json).schedule | default('', true) == ''
+    fail_msg: CORE50_VERIFY_JOB_READBACK_FAILED
+
+- name: Start and wait for native CORE PBS Verify for this namespace only
+  ansible.builtin.command:
+    argv:
+      - qm
+      - guest
+      - exec
+      - '2243'
+      - --timeout
+      - '0'
+      - --
+      - proxmox-backup-manager
+      - verify-job
+      - run
+      - core50-serzhan-home
+  register: core50_verify_run
+  changed_when: true
+  failed_when: >-
+    core50_verify_run.rc != 0 or
+    (core50_verify_run.stdout | default('{}', true) | from_json).get('exitcode', 1) | int != 0 or
+    'TASK OK' not in
+    (core50_verify_run.stdout | default('{}', true) | from_json).get('out-data', '')
+  no_log: true
+
+- name: Report accepted CORE PBS Verify outcome without exposing task secrets
+  ansible.builtin.debug:
+    msg:
+      - CORE50_VERIFY=SUCCESS
+      - CORE50_VERIFY_SCOPE=pbs-core/serzhan-home
+      - "CORE50_VERIFY_SOURCE_SNAPSHOTS={{ core50_verify_snapshot_paths | length }}"
+      - CORE50_VERIFY_JOB=core50-serzhan-home
+      - CORE50_VERIFY_SCHEDULE=NONE
+      - CORE50_VERIFY_MANUAL_RUN=TASK_OK
+      - CORE50_NEXT=TEST_RESTORE_IN_SEPARATE_VMID

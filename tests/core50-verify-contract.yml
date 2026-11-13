@@ -1,0 +1,42 @@
+---
+- name: Test CORE50 namespace-only manual PBS Verify contract
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    project_dir: "{{ playbook_dir | dirname }}"
+    catalog: "{{ lookup('ansible.builtin.file', project_dir ~ '/catalog/tasks.yml') | from_yaml }}"
+    playbook: "{{ lookup('ansible.builtin.file', project_dir ~ '/playbooks/core-backup.yml') | from_yaml }}"
+    verify_tasks: "{{ lookup('ansible.builtin.file', project_dir ~ '/tasks/core50-home-verify.yml') | from_yaml }}"
+    core50: "{{ (catalog.tasks | selectattr('name','equalto','50-Central Backup') | list)[0] }}"
+    actions: "{{ core50.survey_vars[0]['values'] | map(attribute='value') | list }}"
+    verify_config: "{{ verify_tasks | selectattr('name','search','manual namespace-only Verify job') | first }}"
+    verify_run: "{{ verify_tasks | selectattr('name','search','Start and wait for native CORE PBS Verify') | first }}"
+  tasks:
+    - name: Require clear manual 03 action without replacing CORE50 audit or prepare
+      ansible.builtin.assert:
+        that:
+          - actions == ['audit','prepare','verify']
+          - core50.survey_vars[0].default_value == 'audit'
+          - "'03' in core50.survey_vars[0]['values'][2].name"
+          - "'Verify' in core50.survey_vars[0]['values'][2].name"
+          - "'../tasks/core50-home-verify.yml' in (playbook | to_json)"
+
+    - name: Require CORE native Verify bound to single HOME namespace
+      ansible.builtin.assert:
+        that:
+          - verify_config['ansible.builtin.command'].argv[0:6] == ['qm','guest','exec','2243','--','proxmox-backup-manager']
+          - "'--store' in verify_config['ansible.builtin.command'].argv"
+          - "'pbs-core' in verify_config['ansible.builtin.command'].argv"
+          - "'--ns' in verify_config['ansible.builtin.command'].argv"
+          - "'serzhan-home' in verify_config['ansible.builtin.command'].argv"
+          - "'--max-depth' in verify_config['ansible.builtin.command'].argv"
+          - "'0' in verify_config['ansible.builtin.command'].argv"
+          - "'--schedule' not in verify_config['ansible.builtin.command'].argv"
+          - "'--timeout' in verify_run['ansible.builtin.command'].argv"
+          - "'0' in verify_run['ansible.builtin.command'].argv"
+          - "'verify-job' in verify_run['ansible.builtin.command'].argv"
+          - "'run' in verify_run['ansible.builtin.command'].argv"
+          - "'core50-serzhan-home' in verify_run['ansible.builtin.command'].argv"
+          - "'prune' not in (verify_tasks | to_json)"
+          - "'gc' not in (verify_tasks | to_json)"
