@@ -21,9 +21,8 @@
   мониторинг свежести backups по каждому HOME, проверенный Restore.
 - **CORE №10 (проект):** единая регистрация HOME в центральной
   системе; пока не реализована.
-- **CORE №40:** CORE инфраструктура и уже принятый исходящий
-  Cloudflare маршрут CORE → HOME. Он не заменяет проверку
-  обратного направления HOME → CORE.
+- **CORE №40:** инфраструктура PBS и datastore. WARP удалён;
+  рабочий транспорт резервирования — Tailscale (CORE №71).
 - **B2:** отложено; не входит в реализацию №50.
 - Legacy datastore `pbs-serzhan` на CORE и действующие HOME backup
   jobs не менять.
@@ -33,46 +32,86 @@
 Токены для HOME → CORE создаются на **CORE PBS**, а не на HOME PBS
 для входящего CORE Pull. Credentials не хранить в Git или Survey.
 
-## Текущая реализация — только аудит
+## Текущая реализация — аудит и pilot prepare
 
-`playbooks/core-backup.yml` выполняет безопасный аудит через
-Semaphore CORE CT1241, проверяет VM2243, datastore `pbs-core`
-и отсутствие неожиданных legacy Remote/Pull Job. Имеющиеся проверки
-`remote list` и `sync-job list` **не конфигурируют Pull**.
-Отсутствие CORE Pull Jobs — штатное целевое состояние в Push-модели.
+Шаблон CORE Semaphore №50 (ID 3) сохранён вместе с историей.
+Survey `DH_CORE50_ACTION`:
 
-Шаблон Semaphore №50 (ID 3) остаётся тем же: история сохраняется,
-новых фиктивных пунктов Survey не добавляется. Не запускать
-синхронизацию, удаление, изменение ZFS, credentials или namespaces
-в рамках текущего аудита.
+- `audit` (default): штатный read-only аудит без изменения PBS.
+- `prepare`: **только пилот `serzhan-home`** — проверить сертификат
+  непосредственно на CORE PBS, создать namespace и две независимые
+  identities/API tokens с правами в одном namespace.
 
-**Последний известный аудит:** Job #62 (13.11.2026):
-`success, changed=0, failed=0`; CORE `pbs-core` и legacy
-`pbs-serzhan` присутствуют; `remote=0`, `pull_sync=0`,
-backup E2E ещё **не запускался**.
+Namespace: `pbs-core/serzhan-home`.
 
-## Следующий этап — по утверждённой модели
+| Назначение | Auth ID | Роль | Область |
+| --- | --- | --- | --- |
+| Push | `serzhan-home-push@pbs!core50` | `DatastoreBackup` | `/datastore/pbs-core/serzhan-home` |
+| Restore | `serzhan-home-restore@pbs!core50` | `DatastoreReader` | `/datastore/pbs-core/serzhan-home` |
 
-1. Проверить реальный приватный транспорт **HOME → CORE PBS
-   100.97.126.67:8007**, не путать его с принятым маршрутом
-   CORE → HOME или прямым LAN при пересекающихся подсетях.
-2. Спроектировать и реализовать регистрацию `home-id` в CORE
-   (№10), namespace `pbs-core/<home-id>` и выдачу штатного
-   центрального PBS токена HOME с единым для всех домов набором прав.
-3. **В Ansible-HOME** создать PBS Remote на CORE и Push Sync
-   с целью `pbs-core/<home-id>`, `remove-vanished=false`.
-   Source datastore/namespace выбирать по реальному HOME-аудиту.
-4. На пилоте `serzhan-home` принять и проверить реальные snapshots,
-   повторный Push, центральный Verify и тестовое восстановление.
-   При сбое CORE локальные HOME Backup Jobs продолжают выполняться.
-5. После пилота — согласовать центральные namespace-scoped
-   retention/Prune, datastore GC, мониторинг и расписания
-   Push Sync на HOME. Подключать другие HOME по той же модели.
+ACL назначается отдельно PBS-пользователю и его token: effective
+privileges проверяются после создания. Ни один из токенов не получает
+Prune/Modify или доступ к `pbs-serzhan`.
 
-**Критерий E2E:** реальные snapshots соответствующего HOME видны
-в назначенном namespace `pbs-core`; повторный Push не разрушает
-историю; успешные Verify и **реальное тестовое восстановление**.
-Статус задачи `success` без данных не считается приёмкой.
+Для создания namespace временно применён bootstrap token с правами
+только на `/datastore/pbs-core`; по завершении он отозван, ACL
+удалён. **Не создаём ни CORE Pull Job, ни HOME Push Job.**
+
+**Передача секретов (не через чат/Git/логи):** значения `value` двух
+токенов находятся во временно сохраняемых файлах только для `root`
+на самой CORE PBS VM2243:
+
+- `/root/.digitalhouses/core50/serzhan-home-push.json`
+- `/root/.digitalhouses/core50/serzhan-home-restore.json`
+
+Оператор выводит каждый файл только в доверенной CORE PVE-консоли
+командой `qm guest exec 2243 -- cat <path>`, переносит `value`
+непосредственно в Secret-поля **HOME Semaphore №05**.
+Файлы CORE пока сохраняются как root-only контрольная копия
+секретов для повторного ввода.
+В Git/чат/лог секреты не публиковать. Повторный `prepare`
+не ротирует секреты.
+
+**Принято 13.11.2026:**
+
+- CORE №00 Job #81: обновлён Survey №50 без создания нового шаблона.
+- CORE №50 Job #82: `prepare`, success, `changed=10 failed=0`.
+  Сертификат совпал с независимым HOME TLS SHA256, namespace создан,
+  Push/Restore identities, tokens и ACL подготовлены.
+- CORE №50 Job #83: повторный `prepare`, success,
+  `changed=0 failed=0`; идемпотентность подтверждена.
+- HOME №34 Job #122 (по передаче HOME): маршрут Tailscale готов,
+  но Remote, Push Job, snapshots и E2E ещё отсутствуют.
+
+## Следующий этап — HOME №34 и E2E
+
+1. **Доверенный оператор CORE** извлекает две пары `tokenid/value`
+   из root-only файлов на CORE PBS, без публикации в чат/Git/логи.
+2. В HOME Semaphore №05 заполняет 5 уже подготовленных полей:
+   `DH_INPUT_CORE_PBS_PUSH_AUTH_ID`,
+   `DH_INPUT_CORE_PBS_PUSH_TOKEN_SECRET`,
+   `DH_INPUT_CORE_PBS_FINGERPRINT`,
+   `DH_INPUT_CORE_PBS_RESTORE_AUTH_ID`,
+   `DH_INPUT_CORE_PBS_RESTORE_TOKEN_SECRET`.
+   Старые unrelated поля оставить пустыми (сохранить).
+3. **В Ansible-HOME №34** сделать `prepare`: Remote
+   `core-serzhan-home` → CORE `100.97.126.67:8007`,
+   `pbs-core` и `remote-ns=serzhan-home` (push direction).
+   Исходный datastore `pbs-serzhan`, `remove-vanished=false`.
+4. Ручной `push`, повторный `push` на HOME для проверки
+   идемпотентности. Расписание Push до E2E не включать.
+5. В CORE №50 проверить реальные snapshots в назначенном namespace,
+   owner = Push token identity; затем Verify и централизованную
+   namespace-scoped retention.
+6. На HOME №34 `restore-storage` с отдельным read-only токеном,
+   тестовый Restore в **новый** VMID (не затирать действующие VM).
+7. Только после успешного E2E разрешить расписания и масштабирование
+   на другие HOME. CORE №10 Registry — отдельный будущий проект.
+
+**Критерий E2E:** реальные snapshots `serzhan-home` видны
+в `pbs-core`; повторный Push не разрушает историю;
+Verify и восстановление успешно выполнены. Успех только задачи
+`prepare` не означает работоспособности резервирования.
 
 ## Исторические факты — не актуальная Pull-архитектура
 

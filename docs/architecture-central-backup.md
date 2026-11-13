@@ -1,9 +1,9 @@
 # DigitalHouses Central Backup — целевая архитектура (решение 13.11.2026)
 
-**Статус:** архитектурное решение принято; развёртывание Push Sync HOME → CORE,
-учёт домов и контроль резервирования ещё **не реализованы**. Этот документ
-заменяет ранее обсуждавшуюся целевую схему CORE Pull из HOME.
-Никаких HOME или CORE настроек данное решение само по себе не меняет.
+**Статус:** архитектура принята; CORE-пилот `serzhan-home` создан в
+`pbs-core` с двумя ограниченными токенами Push/Restore (CORE №50 Job #82).
+HOME Push Sync, E2E Restore, регулярные retention/Verify и №10 Registry
+ещё **не реализованы**. Ранее намеченная модель CORE Pull отменена.
 
 ## 1. Принцип
 
@@ -96,9 +96,9 @@ namespace-scoped; GC — datastore-scoped.
   отвечает по tailnet IP; сохранены DNS `192.168.11.1` и default route.
 - CORE WARP Traffic-only остановлен и пакет удалён; исторические
   Cloudflare тесты CORE → HOME **не являются** текущим транспортом.
-- HOME PVE уже в tailnet, но HOME PBS должен быть подключён в
-  **Ansible-HOME №71**. Реальный HOME PBS Push Sync и Restore
-  через Tailscale **ещё не выполнены**.
+- HOME PBS `serzhan-home` уже в tailnet: `100.88.184.103` (HOME №34
+  Job #122 подтвердил маршрут до CORE PBS `100.97.126.67:8007`).
+  Реальный Push Sync и Restore через Tailscale **ещё не выполнены**.
 - При одинаковых LAN подсетях использовать уникальные Tailscale IP
   соответствующих PBS, не адреса `192.168.11.x` и не короткий
   MagicDNS hostname: Tailscale DNS отключён.
@@ -121,8 +121,9 @@ B2 остаётся **вне текущих задач и внедрения**. 
   WARP-действия выведены из эксплуатации.
 - **CORE №71:** Tailscale на CORE PVE/PBS и плановые обновления.
 - **CORE №10:** будущая регистрация HOME и его назначения в центре.
-- **CORE №50:** центральные namespaces, retention, Prune, Verify, GC,
-  мониторинг отсутствующих/старых snapshots и проверка восстановления.
+- **CORE №50:** создание namespace и минимальных Push/Restore токенов
+  выполнено для пилота. Retention, Prune, Verify, GC, freshness-мониторинг
+  и тестовое восстановление — после реального Push.
 - **Ansible-HOME:** локальный PVE/PBS backup, PBS Remote на CORE,
   Push Sync, запуск и проверки отправки. CORE не пишет HOME конфигурацию.
 
