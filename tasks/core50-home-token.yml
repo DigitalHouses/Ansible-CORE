@@ -1,0 +1,198 @@
+---
+# Included once for kind=push and kind=restore. Token values never logged.
+- name: List existing PBS tokens for dedicated HOME identity
+  ansible.builtin.command:
+    argv:
+      - qm
+      - guest
+      - exec
+      - '2243'
+      - --
+      - proxmox-backup-manager
+      - user
+      - list-tokens
+      - "serzhan-home-{{ core50_token_role.kind }}@pbs"
+      - --output-format
+      - json
+  register: core50_identity_tokens_before
+  changed_when: false
+
+- name: Check local protected credential handoff file without reading it
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, test, -s, "/root/.digitalhouses/core50/serzhan-home-{{ core50_token_role.kind }}.json"]
+  register: core50_identity_file_before
+  changed_when: false
+
+- name: Determine whether token already exists
+  ansible.builtin.set_fact:
+    core50_identity_token_exists: >-
+      {{ 'core50' in
+         (((core50_identity_tokens_before.stdout | from_json)['out-data'] | from_json)
+          | map(attribute='token-name') | list) }}
+    core50_identity_file_exists: "{{ (core50_identity_file_before.stdout | from_json).exitcode | int == 0 }}"
+
+- name: Refuse orphan token or orphan secret file; never silently rotate API credentials
+  ansible.builtin.assert:
+    that:
+      - core50_identity_token_exists == core50_identity_file_exists
+    fail_msg: "CORE50_{{ core50_token_role.kind | upper }}_TOKEN_FILE_MISMATCH_REQUIRES_REVIEW"
+
+- name: Generate dedicated HOME API token if absent
+  ansible.builtin.command:
+    argv:
+      - qm
+      - guest
+      - exec
+      - '2243'
+      - --
+      - proxmox-backup-manager
+      - user
+      - generate-token
+      - "serzhan-home-{{ core50_token_role.kind }}@pbs"
+      - core50
+      - --comment
+      - "DigitalHouses HOME serzhan-home {{ core50_token_role.kind }} credential"
+  register: core50_generated_token
+  changed_when: true
+  no_log: true
+  when: not core50_identity_token_exists
+
+- name: Save new token once inside root-only CORE PBS credentials directory
+  ansible.builtin.command:
+    argv:
+      - qm
+      - guest
+      - exec
+      - '2243'
+      - --pass-stdin
+      - '1'
+      - --
+      - sh
+      - -c
+      - >-
+        umask 077;
+        mkdir -p /root/.digitalhouses/core50;
+        cat > "/root/.digitalhouses/core50/serzhan-home-{{ core50_token_role.kind }}.json"
+    stdin: "{{ (core50_generated_token.stdout | from_json)['out-data'] | regex_replace('^Result:\\s*', '') | trim }}"
+    stdin_add_newline: false
+  register: core50_secret_file_write
+  failed_when: >-
+    core50_secret_file_write.rc != 0 or
+    (core50_secret_file_write.stdout | default('{}', true) | from_json).get('exitcode', 1) | int != 0
+  changed_when: true
+  no_log: true
+  when: not core50_identity_token_exists
+
+- name: Check protected HOME credential file owner and mode without reading content
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, stat, -c, '%U:%G:%a', "/root/.digitalhouses/core50/serzhan-home-{{ core50_token_role.kind }}.json"]
+  register: core50_secret_file_stat
+  changed_when: false
+
+- name: Require root-only credential file
+  ansible.builtin.assert:
+    that:
+      - (core50_secret_file_stat.stdout | from_json).exitcode | int == 0
+      - ((core50_secret_file_stat.stdout | from_json)['out-data'] | trim) == 'root:root:600'
+    fail_msg: CORE50_TOKEN_SECRET_FILE_NOT_ROOT_ONLY
+
+- name: Read namespace-scoped CORE PBS access control entries
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, proxmox-backup-manager, acl, list, --output-format, json]
+  register: core50_acl_before
+  changed_when: false
+
+- name: Assign exactly the namespace-scoped role to PBS user and token
+  ansible.builtin.command:
+    argv:
+      - qm
+      - guest
+      - exec
+      - '2243'
+      - --
+      - proxmox-backup-manager
+      - acl
+      - update
+      - /datastore/pbs-core/serzhan-home
+      - "{{ core50_token_role.role }}"
+      - --auth-id
+      - "{{ item }}"
+  loop:
+    - "serzhan-home-{{ core50_token_role.kind }}@pbs"
+    - "serzhan-home-{{ core50_token_role.kind }}@pbs!core50"
+  register: core50_acl_update
+  changed_when: true
+  failed_when: (core50_acl_update.stdout | from_json).exitcode | int != 0
+  when: >-
+    (((core50_acl_before.stdout | from_json)['out-data'] | from_json)
+     | selectattr('path', 'equalto', '/datastore/pbs-core/serzhan-home')
+     | selectattr('ugid', 'equalto', item)
+     | selectattr('roleid', 'equalto', core50_token_role.role)
+     | list | length) == 0
+
+- name: Read effective privileges of resulting token at its HOME namespace
+  ansible.builtin.command:
+    argv:
+      - qm
+      - guest
+      - exec
+      - '2243'
+      - --
+      - proxmox-backup-manager
+      - user
+      - permissions
+      - "serzhan-home-{{ core50_token_role.kind }}@pbs!core50"
+      - --path
+      - /datastore/pbs-core/serzhan-home
+      - --output-format
+      - json
+  register: core50_effective_home_privileges
+  changed_when: false
+
+- name: Confirm exact HOME role, with no prune/modify rights
+  ansible.builtin.assert:
+    that:
+      - (core50_effective_home_privileges.stdout | from_json).exitcode | int == 0
+      - >-
+        ((((core50_effective_home_privileges.stdout | from_json)['out-data'] | from_json)
+          ['/datastore/pbs-core/serzhan-home']).get('Datastore.Backup', false) | bool)
+        == (core50_token_role.kind == 'push')
+      - >-
+        ((((core50_effective_home_privileges.stdout | from_json)['out-data'] | from_json)
+          ['/datastore/pbs-core/serzhan-home']).get('Datastore.Read', false) | bool)
+        == (core50_token_role.kind == 'restore')
+      - >-
+        not ((((core50_effective_home_privileges.stdout | from_json)['out-data'] | from_json)
+          ['/datastore/pbs-core/serzhan-home']).get('Datastore.Prune', false) | bool)
+      - >-
+        not ((((core50_effective_home_privileges.stdout | from_json)['out-data'] | from_json)
+          ['/datastore/pbs-core/serzhan-home']).get('Datastore.Modify', false) | bool)
+    fail_msg: CORE50_HOME_TOKEN_PRIVILEGE_SCOPE_MISMATCH
+
+- name: Verify HOME token has no rights on the legacy PBS datastore
+  ansible.builtin.command:
+    argv:
+      - qm
+      - guest
+      - exec
+      - '2243'
+      - --
+      - proxmox-backup-manager
+      - user
+      - permissions
+      - "serzhan-home-{{ core50_token_role.kind }}@pbs!core50"
+      - --path
+      - /datastore/pbs-serzhan
+      - --output-format
+      - json
+  register: core50_legacy_permissions
+  changed_when: false
+
+- name: Refuse any permission on the legacy datastore
+  ansible.builtin.assert:
+    that:
+      - (core50_legacy_permissions.stdout | from_json).exitcode | int == 0
+      - >-
+        (((core50_legacy_permissions.stdout | from_json)['out-data'] | from_json)
+         .get('/datastore/pbs-serzhan', {})) | length == 0
+    fail_msg: CORE50_TOKEN_CAN_ACCESS_LEGACY_DATASTORE

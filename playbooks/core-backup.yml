@@ -1,7 +1,7 @@
 ---
-# 50 | Central Backup: read-only audit under accepted HOME Push -> CORE model.
-# Remotes and Push Sync run on HOME PBS, not on CORE. Never configure Pull.
-# No HOME operations, tokens, ZFS changes, deletion, backup or sync execution.
+# 50 | Central Backup: audit or explicit pilot HOME receiving-side preparation.
+# Remotes and Push jobs run only on HOME PBS. Never configure CORE Pull.
+# Preserve existing datastore, ZFS, media, legacy tokens and backup jobs.
 - name: "50 | Identify the trusted CORE runner and PVE"
   hosts: runner
   connection: local
@@ -11,6 +11,7 @@
   vars:
     core50_site: "{{ lookup('ansible.builtin.file', '/etc/digitalhouses/site-id') | trim }}"
     core50_profile: "{{ lookup('ansible.builtin.file', '/etc/digitalhouses/site-profile') | trim }}"
+    core50_action: "{{ DH_CORE50_ACTION | default('audit', true) }}"
   tasks:
     - name: Refuse a HOME runner or an unexpected PVE
       ansible.builtin.assert:
@@ -19,6 +20,7 @@
           - core50_profile == 'core'
           - pve.ipv4 == '192.168.11.240'
           - pve.node | length > 0
+          - core50_action in ['audit', 'prepare']
         fail_msg: CORE50_MUST_RUN_FROM_DH_CORE_SEMAPHORE
 
     - name: Register only the pinned CORE PVE
@@ -34,6 +36,7 @@
           -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes
           -o UserKnownHostsFile=/var/lib/semaphore/.ssh/known_hosts
         core50_expected_node: "{{ pve.node }}"
+        core50_action: "{{ core50_action }}"
       changed_when: false
 
 - name: "50 | Audit central PBS backup configuration"
@@ -102,16 +105,20 @@
           - (core50_datastores | selectattr('name', 'equalto', 'pbs-serzhan') | list | length) == 1
         fail_msg: CORE50_CENTRAL_DATASTORE_MISSING_OR_CHANGED
 
+    - name: Prepare CORE receiving side of serzhan-home Push/Restore
+      ansible.builtin.include_tasks: ../tasks/core50-home-prepare.yml
+      when: core50_action == 'prepare'
+
     - name: Report read-only backup configuration status
       ansible.builtin.debug:
         msg:
-          - CORE50_MODE=AUDIT
+          - "CORE50_MODE={{ core50_action | upper }}"
           - CORE50_PBS=dh-core/VM2243/192.168.11.243
           - CORE50_DATASTORE=pbs-core
           - "CORE50_LEGACY_REMOTE_COUNT={{ core50_remotes | length }}"
           - "CORE50_LEGACY_PULL_SYNC_JOB_COUNT={{ core50_sync_jobs | length }}"
           - CORE50_TARGET_MODEL=HOME_PUSH_TO_CORE_PBS_PER_HOME_NAMESPACE
-          - CORE50_HOME_TO_CORE_TRANSPORT=NOT_YET_CONFIRMED
+          - CORE50_HOME_TO_CORE_TRANSPORT=HOME34_TAILSCALE_ROUTE_VERIFIED_E2E_PENDING
           - CORE50_B2=DEFERRED
           - CORE50_BACKUP_E2E=NOT_RUN
           - CORE50_NEXT=Validate_HOME_TO_CORE_PRIVATE_HTTPS_THEN_HOME_PUSH_SYNC

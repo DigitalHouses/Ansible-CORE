@@ -28,7 +28,17 @@ tasks:
           - {name: "Подготовить ZFS dataset и datastore pbs-core", value: prepare}
   - name: 50-Central Backup
     playbook: playbooks/core-backup.yml
-    description: "Read-only audit of CORE PBS; HOME Push Sync into per-HOME namespaces, central Verify/Prune/Restore planned"
+    description: "Audit CORE PBS or prepare serzhan-home namespace and separate scoped Push/Restore PBS credentials; no HOME changes"
+    survey_vars:
+      - name: DH_CORE50_ACTION
+        title: "CORE Central Backup — действие"
+        type: enum
+        target: ""
+        required: true
+        default_value: audit
+        values:
+          - {name: "Проверить CORE PBS без изменений", value: audit}
+          - {name: "Подготовить namespace и отдельные Push/Restore токены для serzhan-home", value: prepare}
   - name: 71-Tailscale
     playbook: playbooks/core-tailscale.yml
     description: "CORE PVE + PBS: stable Tailscale install/configure/join/update; safe PBS WARP migration completed"

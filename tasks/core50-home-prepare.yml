@@ -1,0 +1,209 @@
+---
+# CORE50 pilot receiver: dedicated namespace and scoped token identities.
+# No HOME systems, backups, pruning, legacy datastore, media, VM or ZFS changed.
+- name: Read actual TLS certificate directly on CORE PBS
+  ansible.builtin.command:
+    argv:
+      - qm
+      - guest
+      - exec
+      - '2243'
+      - --
+      - openssl
+      - x509
+      - -in
+      - /etc/proxmox-backup/proxy.pem
+      - -noout
+      - -fingerprint
+      - -sha256
+  register: core50_cert_sha
+  changed_when: false
+
+- name: Confirm direct CORE TLS fingerprint matches independently reported HOME observation
+  ansible.builtin.assert:
+    that:
+      - (core50_cert_sha.stdout | from_json).exitcode | int == 0
+      - >-
+        'B3:FD:4F:73:D8:5E:9A:CC:D3:65:BD:57:1A:48:F7:E7:D8:18:90:38:B8:B6:D2:A4:60:49:93:B7:14:12:94:DB'
+        in ((core50_cert_sha.stdout | from_json)['out-data'] | upper)
+    fail_msg: CORE50_CORE_CERT_FINGERPRINT_DIFFERS_FROM_HOME_HANDOFF
+
+- name: Check namespace is not already present in the existing PBS datastore
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, test, -d, /serzhan-pool/pbs-core/ns/serzhan-home]
+  register: core50_namespace_before
+  changed_when: false
+
+- name: Read existing root tokens (never display secrets)
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, proxmox-backup-manager, user, list-tokens, root@pam, --output-format, json]
+  register: core50_root_tokens_before
+  changed_when: false
+  no_log: true
+
+- name: Refuse an orphaned temporary bootstrap token
+  ansible.builtin.assert:
+    that:
+      - (core50_root_tokens_before.stdout | from_json).exitcode | int == 0
+      - >-
+        'core50-bootstrap' not in
+        (((core50_root_tokens_before.stdout | from_json)['out-data'] | from_json)
+         | map(attribute='token-name') | list)
+    fail_msg: CORE50_ORPHAN_BOOTSTRAP_TOKEN_REQUIRES_MANUAL_REVIEW
+  when: (core50_namespace_before.stdout | from_json).exitcode | int != 0
+
+- name: Create only the missing serzhan-home namespace through PBS client API
+  when: (core50_namespace_before.stdout | from_json).exitcode | int != 0
+  block:
+    - name: Create one-time temporary CORE namespace-bootstrap token
+      ansible.builtin.command:
+        argv: [qm, guest, exec, '2243', --, proxmox-backup-manager, user, generate-token, root@pam, core50-bootstrap]
+      register: core50_bootstrap_token
+      changed_when: true
+      no_log: true
+
+    - name: Limit temporary bootstrap token to pbs-core datastore
+      ansible.builtin.command:
+        argv:
+          - qm
+          - guest
+          - exec
+          - '2243'
+          - --
+          - proxmox-backup-manager
+          - acl
+          - update
+          - /datastore/pbs-core
+          - DatastoreAdmin
+          - --auth-id
+          - root@pam!core50-bootstrap
+      register: core50_bootstrap_acl
+      failed_when: >-
+        core50_bootstrap_acl.rc != 0 or
+        (core50_bootstrap_acl.stdout | default('{}', true) | from_json).get('exitcode', 1) | int != 0
+      changed_when: true
+      no_log: true
+
+    - name: Create namespace using native PBS client with token secret on stdin
+      ansible.builtin.command:
+        argv:
+          - qm
+          - guest
+          - exec
+          - '2243'
+          - --timeout
+          - '90'
+          - --pass-stdin
+          - '1'
+          - --
+          - sh
+          - -c
+          - >-
+            IFS= read -r PBS_PASSWORD;
+            export PBS_PASSWORD;
+            export PBS_FINGERPRINT=B3:FD:4F:73:D8:5E:9A:CC:D3:65:BD:57:1A:48:F7:E7:D8:18:90:38:B8:B6:D2:A4:60:49:93:B7:14:12:94:DB;
+            exec proxmox-backup-client namespace create serzhan-home
+            --repository 'root@pam!core50-bootstrap@localhost:pbs-core'
+        stdin: "{{ (((core50_bootstrap_token.stdout | from_json)['out-data'] | regex_replace('^Result:\\s*', '')) | from_json).value }}"
+        stdin_add_newline: true
+      register: core50_create_namespace
+      failed_when: >-
+        core50_create_namespace.rc != 0 or
+        (core50_create_namespace.stdout | default('{}', true) | from_json).get('exitcode', 1) | int != 0
+      changed_when: true
+      no_log: true
+
+  always:
+    - name: Remove bootstrap namespace ACL even if namespace creation fails
+      ansible.builtin.command:
+        argv: [qm, guest, exec, '2243', --, proxmox-backup-manager, acl, update, /datastore/pbs-core, DatastoreAdmin, --auth-id, 'root@pam!core50-bootstrap', --delete, 'true']
+      register: core50_cleanup_temp_acl
+      failed_when: false
+      changed_when: false
+      no_log: true
+      when: core50_bootstrap_token is defined
+
+    - name: Revoke temporary bootstrap token even if namespace creation fails
+      ansible.builtin.command:
+        argv: [qm, guest, exec, '2243', --, proxmox-backup-manager, user, delete-token, root@pam, core50-bootstrap]
+      register: core50_cleanup_temp_token
+      failed_when: false
+      changed_when: false
+      no_log: true
+      when: core50_bootstrap_token is defined
+
+- name: Verify CORE namespace directory exists after native PBS creation
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, test, -d, /serzhan-pool/pbs-core/ns/serzhan-home]
+  register: core50_namespace_after
+  changed_when: false
+
+- name: Require the intended namespace and no unexpected results
+  ansible.builtin.assert:
+    that: (core50_namespace_after.stdout | from_json).exitcode | int == 0
+    fail_msg: CORE50_HOME_NAMESPACE_NOT_CREATED
+
+- name: Read existing CORE PBS users before restricted HOME accounts
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, proxmox-backup-manager, user, list, --output-format, json]
+  register: core50_users_before
+  changed_when: false
+
+- name: Create only absent HOME push and restore PBS user identities
+  ansible.builtin.command:
+    argv:
+      - qm
+      - guest
+      - exec
+      - '2243'
+      - --
+      - proxmox-backup-manager
+      - user
+      - create
+      - "serzhan-home-{{ item }}@pbs"
+      - --comment
+      - "DigitalHouses serzhan-home central PBS {{ item }} only"
+  loop: [push, restore]
+  register: core50_user_create
+  changed_when: true
+  failed_when: (core50_user_create.stdout | from_json).exitcode | int != 0
+  when: >-
+    ('serzhan-home-' ~ item ~ '@pbs') not in
+    (((core50_users_before.stdout | from_json)['out-data'] | from_json) | map(attribute='userid') | list)
+
+- name: Prepare limited, independently revocable API token for each HOME role
+  ansible.builtin.include_tasks: core50-home-token.yml
+  loop:
+    - {kind: push, role: DatastoreBackup}
+    - {kind: restore, role: DatastoreReader}
+  loop_control:
+    loop_var: core50_token_role
+
+- name: Check obsolete temporary namespace-bootstrap token was revoked
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, proxmox-backup-manager, user, list-tokens, root@pam, --output-format, json]
+  register: core50_root_tokens_after
+  changed_when: false
+  no_log: true
+
+- name: Require no temporary bootstrap identity survives provisioning
+  ansible.builtin.assert:
+    that:
+      - >-
+        'core50-bootstrap' not in
+        (((core50_root_tokens_after.stdout | from_json)['out-data'] | from_json)
+         | map(attribute='token-name') | list)
+    fail_msg: CORE50_BOOTSTRAP_TOKEN_STILL_PRESENT
+
+- name: Report CORE-only receiving side preparation without secrets
+  ansible.builtin.debug:
+    msg:
+      - CORE50_TLS_FINGERPRINT=MATCHED_DIRECTLY_ON_CORE_PBS
+      - CORE50_HOME_ID=serzhan-home
+      - CORE50_NAMESPACE=pbs-core/serzhan-home
+      - CORE50_PUSH_AUTH_ID=serzhan-home-push@pbs!core50
+      - CORE50_RESTORE_AUTH_ID=serzhan-home-restore@pbs!core50
+      - CORE50_HOME_CREDS=PROTECTED_CORE_ROOT_ONLY_FILES
+      - CORE50_HOME_CREDS_DELIVERY=HOME_SEMAPHORE_05_OPERATOR_STEP
+      - CORE50_HOME_PBS_PUSH=NOT_RUN
+      - CORE50_CORE_PBS_PRUNE_VERIFY=NOT_CONFIGURED
