@@ -137,8 +137,9 @@
   ansible.builtin.command:
     argv: [qm, guest, exec, '2243', --timeout, '0', --, apt-get, install, -y, tailscale]
   register: core71_pbs_install_result
-  changed_when: core71_pbs_install_result.stdout is defined and ((core71_pbs_install_result.stdout | from_json).exitcode | int == 0)
-  failed_when: (core71_pbs_install_result.stdout | from_json).exitcode | int != 0
+  # Installing a package may restart QEMU Guest Agent briefly. Verify final package state below.
+  changed_when: false
+  failed_when: false
   when:
     - core71_action == 'install'
     - (core71_pbs_package_before.stdout | from_json).exitcode | int != 0
@@ -147,8 +148,9 @@
   ansible.builtin.command:
     argv: [qm, guest, exec, '2243', --timeout, '0', --, apt-get, install, -y, --only-upgrade, tailscale]
   register: core71_pbs_upgrade_result
+  # Treat transient QGA restart separately from actual package failure.
   changed_when: false
-  failed_when: (core71_pbs_upgrade_result.stdout | from_json).exitcode | int != 0
+  failed_when: false
   when:
     - core71_action == 'update'
     - (core71_pbs_package_before.stdout | from_json).exitcode | int == 0
@@ -168,6 +170,21 @@
     argv: [qm, guest, exec, '2243', --, dpkg-query, -W, '-f=${Version}', tailscale]
   register: core71_pbs_package_after
   changed_when: false
+  failed_when: false
+  until: >-
+    core71_action == 'audit' or
+    (core71_pbs_package_after.rc == 0 and
+     (core71_pbs_package_after.stdout | default('{}', true) | from_json).get('exitcode', 1) | int == 0)
+  retries: 8
+  delay: 3
+
+- name: Confirm CORE PBS package installation or upgrade completed
+  ansible.builtin.assert:
+    that:
+      - core71_pbs_package_after.rc == 0
+      - (core71_pbs_package_after.stdout | default('{}', true) | from_json).get('exitcode', 1) | int == 0
+    fail_msg: CORE71_PBS_TAILSCALE_PACKAGE_NOT_INSTALLED
+  when: core71_action in ['install', 'update'] and (core71_action == 'install' or (core71_pbs_package_before.stdout | from_json).exitcode | int == 0)
 
 - name: Read CORE PBS tailnet state if client installed
   ansible.builtin.command:
