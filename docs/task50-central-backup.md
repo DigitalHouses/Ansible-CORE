@@ -98,3 +98,14 @@ backup E2E ещё **не запускался**.
   `69:B6:A4:47:18:B2:B9:87:F3:40:2B:16:96:04:73:E9:8B:E0:5E:53:5F:DA:F2:11:EA:56:D2:ED:08:CB:54:DB`.
   Для HOME Push потребуется отдельно проверить сертификат
   **CORE PBS**.
+
+## Контроль после миграции транспорта CORE (13.11.2026)
+
+- CORE №50 Job **#80**: `audit`, `success changed=0 failed=0`.
+- `pbs-core` и прежние настройки сохранены, старых CORE Pull Jobs — 0.
+- CORE PBS доступен по Tailscale IP `100.97.126.67:8007`;
+  контрольный запрос без авторизации возвращает HTTP `401`
+  по LAN и tailnet IP (PBS отвечает).
+- WARP выведен из эксплуатации в CORE №71; HOME Push в CORE
+  пока не выполнялся. `CORE50_HOME_TO_CORE_TRANSPORT=NOT_YET_CONFIRMED`,
+  `CORE50_BACKUP_E2E=NOT_RUN` — корректные статусы.
