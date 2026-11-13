@@ -182,3 +182,28 @@ Read-only инспекция показала, что VM2243 — совмещё�
 Удаление WARP пакета и исключение его действий из №40 — отдельный
 последующий шаг **только после успешного теста транспорта**.
 Не удалять Cloudflare Tunnel/Access, не трогать HOME №70.
+
+## Финальная приёмка CORE PBS (13.11.2026)
+
+- CORE №00 Job #74 добавил Survey `migrate` в №71.
+- CORE №71 Job **#75**, `migrate / pbs` — **success**,
+  `failed=0`, `CORE71_TAILNET=Running`,
+  `CORE71_WARP=INACTIVE`, DNS/default route `UNCHANGED`.
+- CORE PBS в tailnet: **`dh-core-pbs`**, `100.97.126.67`.
+  CORE PVE: `dh-core-pve`, `100.64.243.13`.
+- Связь CORE PVE ↔ PBS **direct** (локальный маршрут
+  `192.168.11.243:41641`), Tailscale API PBS `:8007` и
+  LAN API PBS `:8007` возвращают HTTP `401` на запрос без
+  авторизации (PBS сервис отвечает).
+- Пакет `cloudflare-warp` удалён, затем конфигурационные остатки
+  очищены `apt-get purge`; `dpkg -s cloudflare-warp` сообщает
+  `not installed`, unit `warp-svc` удалён.
+- `serzhan-pool`, `pbs-core`, `pbs-serzhan`, media/doc и VM
+  не затронуты; `recreate + import` **не выполнялся**.
+- CORE №40 теперь обслуживает только инфраструктуру и datastore;
+  устаревшие WARP-модули удалены из рабочей версии репозитория.
+  Старые Git commits и история Semaphore остаются.
+- **Предстоит:** проверить HOME PBS → CORE PBS по Tailscale и
+  настоящий Push/Restore, включить автоматический CORE №71 `update`
+  после проверки Schedule. Cloudflare Zero Trust device profile
+  прежнего PBS не удалялся.

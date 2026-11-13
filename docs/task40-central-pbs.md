@@ -594,3 +594,19 @@ No full VM reboot was performed; service-restart persistence was tested.
 Now move to **CORE №50** (HOME PBS readonly credentials, Remote,
 Pull Sync, retention, Verify, actual restore). Never count direct
 LAN success as Cloudflare proof. Do not modify HOME from CORE.
+
+## Историческое завершение WARP и переход на Tailscale (13.11.2026)
+
+Секции выше документируют **исторически выполненные тесты**.
+Они не описывают текущую целевую архитектуру.
+
+- В CORE PBS VM2243 вместо WARP используется Tailscale
+  `dh-core-pbs` / `100.97.126.67`.
+- Пакет Cloudflare WARP удалён и конфигурационные остатки очищены.
+- У CORE №40 **нет** действий `cf-audit`, `cf-install`,
+  `cf-register`, `cf-profile-prepare`, `cf-transport-audit`,
+  `cf-transport-enable`, `cf-transport-persist`.
+  Доступны только `audit` и `prepare`.
+- Все сетевые операции перенесены в **CORE №71**;
+  Cloudflare Tunnel/Access для веб-приложений не затрагивались.
+- Полный журнал приёмки: `docs/task71-tailscale.md`.

@@ -26,28 +26,12 @@ tasks:
         values:
           - {name: "Проверить инфраструктуру без изменений", value: audit}
           - {name: "Подготовить ZFS dataset и datastore pbs-core", value: prepare}
-          - {name: "Проверить Cloudflare policy, private route и client (без изменений)", value: cf-audit}
-          - {name: "Установить пакет Cloudflare One Client без регистрации и маршрутов", value: cf-install}
-          - {name: "Зарегистрировать Cloudflare One Client (Posture only, без изменения маршрутов)", value: cf-register}
-          - {name: "Создать отдельный неактивный CORE PBS Device Profile (Include HOME /32)", value: cf-profile-prepare}
-          - {name: "Проверить HOME №70 и WARP транспорт CORE без изменений", value: cf-transport-audit}
-          - {name: "Включить WARP Traffic only CORE→HOME PBS и проверить HTTPS с автооткатом", value: cf-transport-enable}
-          - {name: "Включить автоподключение WARP после рестарта и проверить PBS", value: cf-transport-persist}
-      - name: DH_CORE40_CF_ACCEPT_TOS
-        title: "Согласие с Cloudflare One Client Terms of Service (только для регистрации)"
-        type: enum
-        target: ""
-        required: true
-        default_value: "no"
-        values:
-          - {name: "Не принимаю / не регистрировать", value: "no"}
-          - {name: "Принимаю условия Cloudflare и разрешаю регистрацию CORE PBS", value: "yes"}
   - name: 50-Central Backup
     playbook: playbooks/core-backup.yml
     description: "Read-only audit of CORE PBS; HOME Push Sync into per-HOME namespaces, central Verify/Prune/Restore planned"
   - name: 71-Tailscale
     playbook: playbooks/core-tailscale.yml
-    description: "CORE PVE + PBS: audit, install, configure, join, update stable Tailscale without altering DNS/default route; WARP migration separate"
+    description: "CORE PVE + PBS: stable Tailscale install/configure/join/update; safe PBS WARP migration completed"
     survey_vars:
       - name: DH_CORE71_ACTION
         title: "Tailscale — действие"

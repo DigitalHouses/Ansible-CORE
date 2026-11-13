@@ -10,12 +10,12 @@ Independent native Ansible + existing Semaphore for central **dh-core** infrastr
   retention, Prune, Verify, GC, freshness monitoring and E2E restore.
   HOME initiates native **Push Sync** into CORE; no CORE Pull Jobs.
 - **71-Tailscale** — manage CORE PVE/PBS Tailscale client via separate audit,
-  install, configure, join and stable-only update actions; no WARP removal.
+  install, configure, join, one-time PBS migration and stable-only update actions.
 
 HOME setup, HOME Media Server and HOME Cloudflare tunnel are **excluded**.
-CORE never provisions HOME from this repository. CORE → HOME Cloudflare
-transport is already verified; **HOME → CORE PBS transport remains to be
-verified** before Push Sync. HOME independently runs local backups.
+CORE never provisions HOME from this repository. CORE PVE/PBS use a common Tailscale tailnet; **HOME PBS → CORE PBS
+transport remains to be verified** before Push Sync. HOME independently
+runs local backups.
 Backblaze B2 is deferred (source HOME vs CORE not decided).
 
 See `bootstrap/README.md`, `docs/repository-split.md`,
