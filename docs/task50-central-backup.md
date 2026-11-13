@@ -148,3 +148,17 @@ Verify и восстановление успешно выполнены. Усп
 - WARP выведен из эксплуатации в CORE №71; HOME Push в CORE
   пока не выполнялся. `CORE50_HOME_TO_CORE_TRANSPORT=NOT_YET_CONFIRMED`,
   `CORE50_BACKUP_E2E=NOT_RUN` — корректные статусы.
+
+## Проверка реальной API-авторизации Push-токена
+
+После Job #83 выполнено чтение через настоящий PBS client с
+`serzhan-home-push@pbs!core50` и секретом, извлечённым внутри
+доверенной CORE PBS VM (без передачи значения в вывод инструментов).
+
+- `snapshot list --ns serzhan-home --repository ...:pbs-core`: **PASS**.
+- Попытка прочитать legacy `pbs-serzhan` тем же токеном: **DENIED**.
+- Тестирование Restore token отдельным API-сеансом ещё не проводилось;
+  его effective ACL (`DatastoreReader`, только serzhan-home) проверен №50.
+
+Эта проверка удостоверяет авторизацию, но не заменяет реальный HOME Push
+и Restore тестовой VM — они всё ещё ожидают HOME №05 и №34.
