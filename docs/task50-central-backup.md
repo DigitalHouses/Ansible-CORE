@@ -1,105 +1,100 @@
 # №50 — Central Backup
 
-**Назначение:** эксплуатация централизованного резервирования домов в
-`dh-core / Media Server + PBS — VM2243, 192.168.11.243`.
-Не устанавливает PVE, PBS, VM, ZFS и Cloudflare-транспорт — это
-инфраструктурные зависимости задачи №40 и отдельного HOME №70.
+**Актуальная архитектура:** [Central Backup HOME Push → CORE](architecture-central-backup.md).
+Решение принято 13.11.2026. **Ранее запланированная CORE Pull Sync
+заменена на HOME Push Sync.** Старые аудиты отражают историческое
+состояние; они не являются техническим заданием на настройку Pull.
 
-## Граница ответственности
+## Назначение и границы
 
-- **№40 CORE Infrastructure:** аудит CORE PVE/VM/PBS, подготовка
-  `serzhan-pool/pbs-core` и проверка базового маршрута.
-- **№50 Central Backup:** PBS Remotes для HOME, отдельные namespaces,
-  Pull Sync Jobs, их запуск/расписание, retention, Prune, GC, Verify,
-  мониторинг и E2E-восстановление.
-- **HOME №70 и другие HOME задачи:** Cloudflare исходящий туннель
-  на каждом HOME, доступ PBS и выдача разрешённых credentials. CORE не
-  меняет HOME через №50.
+Центральный PBS — CORE VM2243, `192.168.11.243:8007`, datastore
+`pbs-core`. Для каждого зарегистрированного HOME в одном datastore
+предусмотрен **собственный namespace** `<home-id>` (например,
+`serzhan-home`), а не отдельный datastore на дом.
 
-## Реализованный этап: audit (без изменений)
+- **HOME:** автономно создаёт локальные PVE/PBS резервные копии,
+  на своём PBS настраивает Remote **на CORE** и штатный
+  `sync-direction=push`; запускает Push Sync по согласованному
+  расписанию либо вручную при тестировании.
+- **CORE №50:** управляет **полученными в центре** копиями:
+  namespace-scoped retention/Prune/Verify, datastore-wide GC,
+  мониторинг свежести backups по каждому HOME, проверенный Restore.
+- **CORE №10 (проект):** единая регистрация HOME в центральной
+  системе; пока не реализована.
+- **CORE №40:** CORE инфраструктура и уже принятый исходящий
+  Cloudflare маршрут CORE → HOME. Он не заменяет проверку
+  обратного направления HOME → CORE.
+- **B2:** отложено; не входит в реализацию №50.
+- Legacy datastore `pbs-serzhan` на CORE и действующие HOME backup
+  jobs не менять.
 
-`playbooks/core-backup.yml` запускается только из существующего
-`dh-core / Semaphore — CT1241, 192.168.11.241`. Проверяет закреплённую
-CORE PVE, работающую VM2243, наличие `pbs-core` и `pbs-serzhan`,
-читает PBS Remote и Sync Job конфигурацию. Не запускает синхронизацию,
-не меняет credentials, маршруты, расписания, ZFS, datastore или данные.
+Равные полномочия HOME означают **одинаковую роль для отправки
+резервных копий**, но отдельный namespace каждого дома.
+Токены для HOME → CORE создаются на **CORE PBS**, а не на HOME PBS
+для входящего CORE Pull. Credentials не хранить в Git или Survey.
 
-Для первого этапа у №50 **нет Survey**: единственное доступное действие —
-безопасный аудит. Режимы `configure`, `sync`, `test` появятся после
-реальной реализации, а не как неработающие пункты интерфейса.
+## Текущая реализация — только аудит
 
-## Следующие этапы — не реализованы
+`playbooks/core-backup.yml` выполняет безопасный аудит через
+Semaphore CORE CT1241, проверяет VM2243, datastore `pbs-core`
+и отсутствие неожиданных legacy Remote/Pull Job. Имеющиеся проверки
+`remote list` и `sync-job list` **не конфигурируют Pull**.
+Отсутствие CORE Pull Jobs — штатное целевое состояние в Push-модели.
 
-1. Убедиться, что CORE PBS VM2243 действительно достигает HOME PBS
-   через Cloudflare private route, включая пилот `serzhan-home`.
-   Прямое LAN-подключение не является подтверждением.
-2. Получить от соответствующего HOME штатный read-only PBS API token
-   с доступом ко всем нужным backup groups и проверить TLS fingerprint.
-   Секреты — только в Semaphore, не в Git и не в Survey.
-3. Создать PBS Remote и отдельный namespace HOME на `pbs-core`,
-   а также Pull Sync Job с `remove-vanished=false`, без расписания
-   до успешного ручного пилота.
-4. Проверить синхронизацию, Verify, фактическое тестовое восстановление
-   и сравнение данных; только затем согласовать schedules/retention/GC.
-5. Добавлять остальные HOME по той же модели без изменения исходных
-   backup jobs на домах.
+Шаблон Semaphore №50 (ID 3) остаётся тем же: история сохраняется,
+новых фиктивных пунктов Survey не добавляется. Не запускать
+синхронизацию, удаление, изменение ZFS, credentials или namespaces
+в рамках текущего аудита.
 
-**Критерий E2E:** не статус `success`, а полное тестовое восстановление
-из `pbs-core` с подтверждением целостности и повторным Pull без потери
-или дублирования данных.
+**Последний известный аудит:** Job #62 (13.11.2026):
+`success, changed=0, failed=0`; CORE `pbs-core` и legacy
+`pbs-serzhan` присутствуют; `remote=0`, `pull_sync=0`,
+backup E2E ещё **не запускался**.
 
-## Сохранение истории Semaphore
+## Следующий этап — по утверждённой модели
 
-№40 переименовывается в **том же шаблоне ID 2**, оставаясь с прежним
-`playbooks/core-pbs.yml` и Survey `audit/prepare`.
-№50 создаётся как новый шаблон через каталог №00. Существующие
-задания и история не удаляются.
+1. Проверить реальный приватный транспорт **HOME → CORE PBS
+   192.168.11.243:8007**, не путать его с принятым маршрутом
+   CORE → HOME или прямым LAN при пересекающихся подсетях.
+2. Спроектировать и реализовать регистрацию `home-id` в CORE
+   (№10), namespace `pbs-core/<home-id>` и выдачу штатного
+   центрального PBS токена HOME с единым для всех домов набором прав.
+3. **В Ansible-HOME** создать PBS Remote на CORE и Push Sync
+   с целью `pbs-core/<home-id>`, `remove-vanished=false`.
+   Source datastore/namespace выбирать по реальному HOME-аудиту.
+4. На пилоте `serzhan-home` принять и проверить реальные snapshots,
+   повторный Push, центральный Verify и тестовое восстановление.
+   При сбое CORE локальные HOME Backup Jobs продолжают выполняться.
+5. После пилота — согласовать центральные namespace-scoped
+   retention/Prune, datastore GC, мониторинг и расписания
+   Push Sync на HOME. Подключать другие HOME по той же модели.
 
-## Живая приёмка разделения задач — 12.11.2026
+**Критерий E2E:** реальные snapshots соответствующего HOME видны
+в назначенном namespace `pbs-core`; повторный Push не разрушает
+историю; успешные Verify и **реальное тестовое восстановление**.
+Статус задачи `success` без данных не считается приёмкой.
 
-- `dh-core / Semaphore — CT1241, 192.168.11.241`: существующая
-  №40 переименована **на том же шаблоне ID 2**. Сохранены исходная
-  история запусков, repository ID 2, inventory ID 2, environment ID 1.
-- №00 Job #15: `success`, создала новую №50, шаблон ID 3.
-- №50 Job #16: `success`, `runner ok=2 changed=0 failed=0`,
+## Исторические факты — не актуальная Pull-архитектура
+
+- 12.11.2026: CORE Semaphore шаблон №40 переименован с сохранением
+  ID 2, репозитория, credentials и истории. №00 Job #15 создал
+  №50 как новый шаблон ID 3. №50 Job #16:
+  `runner ok=2 changed=0 failed=0`,
   `core50_pve ok=9 changed=0 failed=0`.
-- Реальный PBS в `dh-core / VM2243, 192.168.11.243`:
-  `pbs-core` и `pbs-serzhan` присутствуют;
-  `CORE50_REMOTE_COUNT=0`, `CORE50_PULL_SYNC_JOB_COUNT=0`.
-- №40 Job #17 (`audit`): `success`, `runner ok=2 changed=0 failed=0`,
-  `core40_pve ok=10 changed=0 failed=0`.
-- Повторный №00 Job #18: `success`; шаблоны ID 1/2/3 сохранены,
-  дубликаты не появились.
-- Полный backup E2E (Pull Sync, Verify, восстановление) **не выполнен**:
-  транспорт Cloudflare и PBS source credentials ещё не готовы.
-
-## Актуализация 13.11.2026 — транспорт CORE №40 принят
-
-Зависимость Cloudflare private route из пункта 1 **выполнена**.
-HOME №70 опубликовал `192.168.11.223/32`, CORE №40 Job #56
-подтвердил реальное `Connected` и маршрут
-`dev CloudflareWARP table 65743 src 100.96.0.6` вместо
-прямого LAN `eth0`; HTTPS `192.168.11.223:8007` вернул
-HTTP 200. Job #58 проверил автоматическое переподключение
-после рестарта службы. Job #59 — read-only active audit
-`HTTPS_200_VIA_WARP` без изменений; Job #60 — повторное
-`cf-transport-enable` `changed=0`; Job #61 —
-`cf-transport-persist` `changed=0`.
-
-Независимо из CORE VM2243 по CloudflareWARP прочитан TLS
-SHA-256 сертификата HOME PBS:
-`69:B6:A4:47:18:B2:B9:87:F3:40:2B:16:96:04:73:E9:8B:E0:5E:53:5F:DA:F2:11:EA:56:D2:ED:08:CB:54:DB`.
-Это **наблюдение с CORE**, для надёжной привязки PBS Remote
-потребуется сверить его с сертификатом на HOME PBS.
-
-№50 Semaphore Job #62 — **success, changed=0 failed=0**:
-центральный `pbs-core` существует, но
-`Remote=0`, `Pull Sync=0`, backup restore E2E не выполнялся.
-
-Осталась задача получения **read-only PBS API token от HOME** с
-доступом ко всем требуемым backup groups. Его выдача
-принадлежит Ansible-HOME, не CORE. После получения credentials
-через существующую №05 CORE (расширять по мере необходимости,
-сохраняя единый Variable Group) можно реализовать штатные
-PBS Remote, Pull Sync и настоящее E2E-восстановление.
-Секреты не публикуются в чате, Git или DEV.
+  CORE VM2243 содержит `pbs-core` и `pbs-serzhan`.
+  CORE `Remote=0`, `Pull Sync=0`.
+  №40 Job #17 `audit` успешен, №00 Job #18 не создал дублей.
+- До 13.11.2026 рассматривалась другая схема:
+  центральный PBS Pull из HOME с read-only HOME PBS token.
+  **Отказались от неё. HOME больше не требуется создавать токен
+  для CORE Pull.**
+- 13.11.2026: HOME №70 опубликовал private route
+  `192.168.11.223/32`. CORE №40 Job #56 подтвердил
+  CloudflareWARP вместо прямого `eth0` и HTTPS 200
+  для CORE → HOME PBS. Jobs #58–#61 подтвердили авто-переподключение,
+  active audit и идемпотентность.
+- CORE №40 сохранил TLS fingerprint HOME PBS для своего ранее
+  действующего направления (не является fingerprint CORE PBS):
+  `69:B6:A4:47:18:B2:B9:87:F3:40:2B:16:96:04:73:E9:8B:E0:5E:53:5F:DA:F2:11:EA:56:D2:ED:08:CB:54:DB`.
+  Для HOME Push потребуется отдельно проверить сертификат
+  **CORE PBS**.

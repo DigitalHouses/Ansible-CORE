@@ -43,4 +43,4 @@ tasks:
           - {name: "Принимаю условия Cloudflare и разрешаю регистрацию CORE PBS", value: "yes"}
   - name: 50-Central Backup
     playbook: playbooks/core-backup.yml
-    description: "Read-only audit of central backup configuration; Remote/Pull Sync/E2E follow after HOME readiness"
+    description: "Read-only audit of CORE PBS; HOME Push Sync into per-HOME namespaces, central Verify/Prune/Restore planned"

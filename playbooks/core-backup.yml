@@ -1,5 +1,6 @@
 ---
-# 50 | Central Backup: read-only audit before adding PBS Remotes/Pull Sync.
+# 50 | Central Backup: read-only audit under accepted HOME Push -> CORE model.
+# Remotes and Push Sync run on HOME PBS, not on CORE. Never configure Pull.
 # No HOME operations, tokens, ZFS changes, deletion, backup or sync execution.
 - name: "50 | Identify the trusted CORE runner and PVE"
   hosts: runner
@@ -61,7 +62,7 @@
         that: "core50_vm_status.stdout | trim == 'status: running'"
         fail_msg: CORE50_PBS_VM2243_NOT_RUNNING
 
-    - name: Query PBS datastores, remotes and pull sync jobs without changing them
+    - name: Query central PBS datastores and legacy pull configuration without changes
       ansible.builtin.command:
         argv: "{{ ['qm', 'guest', 'exec', '2243', '--', 'proxmox-backup-manager'] + item.argv + ['--output-format', 'json'] }}"
       loop:
@@ -107,7 +108,10 @@
           - CORE50_MODE=AUDIT
           - CORE50_PBS=dh-core/VM2243/192.168.11.243
           - CORE50_DATASTORE=pbs-core
-          - "CORE50_REMOTE_COUNT={{ core50_remotes | length }}"
-          - "CORE50_PULL_SYNC_JOB_COUNT={{ core50_sync_jobs | length }}"
+          - "CORE50_LEGACY_REMOTE_COUNT={{ core50_remotes | length }}"
+          - "CORE50_LEGACY_PULL_SYNC_JOB_COUNT={{ core50_sync_jobs | length }}"
+          - CORE50_TARGET_MODEL=HOME_PUSH_TO_CORE_PBS_PER_HOME_NAMESPACE
+          - CORE50_HOME_TO_CORE_TRANSPORT=NOT_YET_CONFIRMED
+          - CORE50_B2=DEFERRED
           - CORE50_BACKUP_E2E=NOT_RUN
-          - CORE50_NEXT=Obtain_HOME_PBS_readonly_credentials_and_validate_TLS_fingerprint
+          - CORE50_NEXT=Validate_HOME_TO_CORE_PRIVATE_HTTPS_THEN_HOME_PUSH_SYNC

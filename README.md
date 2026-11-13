@@ -6,14 +6,18 @@ Independent native Ansible + existing Semaphore for central **dh-core** infrastr
 - **05-Ввести и проверить credentials** — maintain shared native Semaphore credentials for all CORE tasks.
 - **40-CORE Infrastructure** — audit CORE PVE/PBS infrastructure; safely
   prepare dedicated `pbs-core` datastore when explicitly selected.
-- **50-Central Backup** — audit existing PBS backup integration; later
-  configure and operate HOME Remotes, Pull Sync, verification and E2E restore.
+- **50-Central Backup** — audit central PBS and operate per-HOME namespaces,
+  retention, Prune, Verify, GC, freshness monitoring and E2E restore.
+  HOME initiates native **Push Sync** into CORE; no CORE Pull Jobs.
 
 HOME setup, HOME Media Server and HOME Cloudflare tunnel are **excluded**.
-CORE uses the finished HOME transport and credentials but never provisions HOME
-from this repository.
+CORE never provisions HOME from this repository. CORE → HOME Cloudflare
+transport is already verified; **HOME → CORE PBS transport remains to be
+verified** before Push Sync. HOME independently runs local backups.
+Backblaze B2 is deferred (source HOME vs CORE not decided).
 
 See `bootstrap/README.md`, `docs/repository-split.md`,
-`docs/task05-credentials.md`, `docs/task40-central-pbs.md`
+`docs/task05-credentials.md`, `docs/task40-central-pbs.md`,
+`docs/architecture-central-backup.md` (architecture source of truth)
 and `docs/task50-central-backup.md`.
 Original source: `DigitalHouses/Ansible-3` is archived for history.
