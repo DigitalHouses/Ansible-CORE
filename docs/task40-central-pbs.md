@@ -610,3 +610,11 @@ LAN success as Cloudflare proof. Do not modify HOME from CORE.
 - Все сетевые операции перенесены в **CORE №71**;
   Cloudflare Tunnel/Access для веб-приложений не затрагивались.
 - Полный журнал приёмки: `docs/task71-tailscale.md`.
+
+## Контроль после вывода WARP (13.11.2026)
+
+- CORE №00 Job #76 — `success`: актуальный Survey №40
+  `audit`/`prepare`, секреты и прежние Task history сохранены.
+- CORE №40 Job **#77** — `success changed=0 failed=0`.
+  VM2243 и legacy storage остались; сетевое управление
+  передано CORE №71. WARP playbook actions больше не существуют.

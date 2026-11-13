@@ -207,3 +207,24 @@ Read-only инспекция показала, что VM2243 — совмещё�
   настоящий Push/Restore, включить автоматический CORE №71 `update`
   после проверки Schedule. Cloudflare Zero Trust device profile
   прежнего PBS не удалялся.
+
+## Scheduled CORE Tailscale stable updates (13.11.2026)
+
+- CORE №00 Job #76: `success`. Semaphore №40 Survey now
+  contains only `audit` and `prepare` (no WARP actions).
+- CORE №40 Job #77: `audit`, `success changed=0 failed=0`.
+- CORE №71 Job #78: `audit/both`, `success changed=0 failed=0`;
+  PVE/PBS Tailscale `1.104.7 Running`, WARP `INACTIVE`,
+  default routes and local DNS unchanged.
+- CORE №71 Job #79: `update/both`, `success changed=0 failed=0`;
+  оба клиента `1.104.7`, после update соединение `Running`.
+- Создан Semaphore Schedule **ID 1**,
+  `71-Tailscale Weekly Stable Update (CORE PVE + PBS)`,
+  `active=true`, `template_id=5`.
+  Cron `0 23 * * 6` UTC = воскресенье **04:00 Asia/Almaty**.
+  `task_params.environment` сохранён как
+  `DH_CORE71_ACTION=update`, `DH_CORE71_TARGET=both`.
+- CORE Semaphore schedule timezone по конфигурации не задан,
+  используется UTC; контейнер CT1241 работает в UTC.
+- Cloudflare/другие системные пакеты расписание не обновляет,
+  никаких `apt upgrade` для PVE/PBS и reboot.
