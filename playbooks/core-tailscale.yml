@@ -12,7 +12,7 @@
     core71_target: "{{ DH_CORE71_TARGET | default('both', true) }}"
     core71_site: "{{ lookup('ansible.builtin.file', '/etc/digitalhouses/site-id') | trim }}"
     core71_profile: "{{ lookup('ansible.builtin.file', '/etc/digitalhouses/site-profile') | trim }}"
-    core71_auth_key: "{{ lookup('ansible.builtin.env', 'DH_TAILSCALE_AUTH_KEY') }}"
+    core71_auth_key: "{{ DH_TAILSCALE_AUTH_KEY | default('', true) }}"
   tasks:
     - name: Require CORE Semaphore, pinned PVE and known action
       ansible.builtin.assert:
