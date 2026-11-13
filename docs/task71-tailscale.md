@@ -109,3 +109,19 @@ Cloudflare и Tailscale обновлять в **разные** окна.
 - https://tailscale.com/docs/reference/tailscale-cli
 - https://tailscale.com/docs/features/client/update
 - https://tailscale.com/docs/reference/interoperability
+
+## Живая приёмка каталога и read-only аудита (13.11.2026)
+
+- CORE Git `main`, commit `0faee58`: добавлены playbook, задачи
+  PVE/PBS, Semaphore №71 и secret-поле №05.
+- Semaphore №00 Job **#65**: `success`. Создан №71
+  `71-Tailscale`, template ID **5**, 2 Survey (`action`, `target`);
+  прежние шаблоны и история сохранены. №05 получил пятое
+  Secret Survey-поле; auth key **не вводился**.
+- Semaphore №71 Job **#66**, `audit / both`: `success`,
+  `changed=0`, `failed=0`; CORE PVE `tailscale=NOT_INSTALLED`,
+  CORE PBS VM2243 `tailscale=NOT_INSTALLED`, `WARP=ACTIVE`,
+  для обоих `DEFAULT_ROUTE_AND_DNS=UNCHANGED`.
+- **Не выполнялись:** установка пакетов, вход в tailnet,
+  настройка маршрутов, удаление WARP, запуск реального PBS Push/Restore
+  и создание Semaphore Schedule обновлений.
