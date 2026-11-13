@@ -21,15 +21,16 @@
           - core71_profile == 'core'
           - pve.ipv4 == '192.168.11.240'
           - pve.node | length > 0
-          - core71_action in ['audit', 'install', 'configure', 'join', 'update']
+          - core71_action in ['audit', 'install', 'configure', 'join', 'update', 'migrate']
           - core71_target in ['pve', 'pbs', 'both']
+          - core71_action != 'migrate' or core71_target == 'pbs'
         fail_msg: CORE71_WRONG_RUNNER_OR_INVALID_ACTION
 
     - name: Require credential from CORE task 05 for noninteractive join
       ansible.builtin.assert:
         that: core71_auth_key | length > 0
         fail_msg: CORE71_TAILSCALE_AUTH_KEY_MISSING_IN_CORE05
-      when: core71_action == 'join'
+      when: core71_action in ['join', 'migrate']
       no_log: true
 
     - name: Register only the pinned CORE PVE management node
@@ -47,7 +48,7 @@
         core71_action: "{{ core71_action }}"
         core71_target: "{{ core71_target }}"
         core71_expected_node: "{{ pve.node }}"
-        core71_auth_key: "{{ core71_auth_key if core71_action == 'join' else '' }}"
+        core71_auth_key: "{{ core71_auth_key if core71_action in ['join', 'migrate'] else '' }}"
       no_log: true
       changed_when: false
 

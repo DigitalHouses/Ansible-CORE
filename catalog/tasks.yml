@@ -60,6 +60,7 @@ tasks:
           - {name: "Установить пакет Tailscale (без регистрации)", value: install}
           - {name: "Настроить DNS/маршруты на подключённом узле", value: configure}
           - {name: "Подключить к tailnet (auth key из №05; PBS только без WARP)", value: join}
+          - {name: "Миграция PBS: остановить WARP и подключить Tailscale с откатом", value: migrate}
           - {name: "Обновить только пакет Tailscale", value: update}
       - name: DH_CORE71_TARGET
         title: "Узел CORE"
