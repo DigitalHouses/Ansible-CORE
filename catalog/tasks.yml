@@ -15,7 +15,7 @@ tasks:
       - {name: DH_INPUT_TAILSCALE_AUTH_KEY, title: "Tailscale — auth key для CORE PVE/PBS (пусто — сохранить прежний)", type: secret, target: env, required: false, values: []}
   - name: "30-CORE Media E2E"
     playbook: playbooks/core-media-e2e.yml
-    description: "Проверить VM2243, 12 локальных сервисов, SMB, rclone RC и все ссылки портала; исправление только старого IP .250 → .243"
+    description: "Проверить IP из настройки VM2243, ссылки и 12 сервисов; исправить портал, nginx и локальный HTTPS-сертификат без пересоздания VM"
     survey_vars:
       - name: DH_CORE_MEDIA_ACTION
         title: "Что проверить или исправить в CORE Media Server?"
@@ -25,7 +25,7 @@ tasks:
         default_value: audit
         values:
           - {name: "01 — Проверить весь CORE Media Server (только аудит)", value: audit}
-          - {name: "02 — Исправить ссылки портала .250 → .243 и выполнить E2E", value: repair-portal}
+          - {name: "02 — Исправить адреса портала, nginx и HTTPS по IP VM; выполнить E2E", value: repair-portal}
   - name: 40-CORE Infrastructure
     playbook: playbooks/core-pbs.yml
     description: "Audit CORE PVE/PBS infrastructure or prepare pbs-core; no backup synchronization"
