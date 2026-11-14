@@ -15,6 +15,7 @@
     catalog: "{{ lookup('ansible.builtin.file', root ~ '/catalog/tasks.yml') | from_yaml }}"
     pbs_identity: "{{ lookup('ansible.builtin.file', root ~ '/tasks/core-media-pbs-import.yml') | from_yaml }}"
     tailscale_tasks: "{{ lookup('ansible.builtin.file', root ~ '/tasks/core-media-tailscale-import.yml') | from_yaml }}"
+    wsdd: "{{ lookup('ansible.builtin.file', root ~ '/tasks/media30-wsdd-apply.yml') | from_yaml }}"
     item31: "{{ (catalog.tasks | selectattr('name', 'equalto', '31-CORE Media/PBS — Create/Recreate + Import') | list) | first }}"
   tasks:
     - name: Pin CORE addressing, guest IDs, original SATA and ZFS
@@ -80,3 +81,10 @@
             (tailscale_tasks | selectattr('name', 'equalto', 'Verify recovered CORE tailnet is connected without re-authentication')
              | first).delay == 5
           - "'BackendState' in (tailscale_tasks | to_json)"
+
+    - name: Require CORE-specific Windows discovery name, not inherited HOME owner label
+      ansible.builtin.assert:
+        that:
+          - core_media_spec.discovery.netbios_name == 'server-' ~ core_media_site.id
+          - "'media_site.id' in (wsdd | to_json)"
+          - "'media_site.owner_slug' not in (wsdd | to_json)"
