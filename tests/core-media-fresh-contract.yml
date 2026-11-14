@@ -8,6 +8,7 @@
   vars:
     root: "{{ playbook_dir | dirname }}"
     clean: "{{ lookup('ansible.builtin.file', root ~ '/playbooks/core-media-fresh.yml') | from_yaml }}"
+    cert_renew: "{{ lookup('ansible.builtin.file', root ~ '/playbooks/media-account-cert-renew.yml') | from_yaml }}"
     zfs: "{{ lookup('ansible.builtin.file', root ~ '/tasks/media-zfs-apply.yml') }}"
     image: "{{ lookup('ansible.builtin.file', root ~ '/tasks/media30-image-prestage.yml') }}"
     vm: "{{ lookup('ansible.builtin.file', root ~ '/tasks/media-vm-apply.yml') | from_yaml }}"
@@ -88,3 +89,10 @@
           - core_media_spec.discovery.netbios_name == 'server-' ~ core_media_site.id
           - "'media_site.id' in (wsdd | to_json)"
           - "'media_site.owner_slug' not in (wsdd | to_json)"
+
+    - name: Require native auxiliary HTTPS renewal playbook installed from CORE repository
+      ansible.builtin.assert:
+        that:
+          - "'/etc/digitalhouses/media-account-pki/server.crt' in (cert_renew | to_json)"
+          - "'ansible.builtin.systemd_service' in (cert_renew | to_json)"
+          - "'media-account-cert-renew.yml' in (lookup('ansible.builtin.file', root ~ '/tasks/media30-account-portal-apply.yml'))"
