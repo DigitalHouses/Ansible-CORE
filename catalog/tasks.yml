@@ -28,7 +28,7 @@ tasks:
           - {name: "02 — Исправить портал, nginx, HTTPS и cloud-init кеш по IP VM; E2E", value: repair-portal}
   - name: "31-CORE Recreate + Import — подготовка"
     playbook: playbooks/core-media-recreate.yml
-    description: "CORE Media/PBS VM2243: 01 безопасный аудит, 02 защитить системный диск и PBS credentials. Пересоздание пока заблокировано."
+    description: "CORE Media/PBS VM2243: 01 аудит, 02 защита, 03 Recreate VM2243 + Import ZFS (из проверенного архива системного диска)."
     survey_vars:
       - name: DH_CORE31_ACTION
         title: "CORE Media/PBS — подготовка к Recreate + Import"
@@ -39,6 +39,7 @@ tasks:
         values:
           - {name: "01 — Аудит VM2243, ZFS, PBS и резервирования (без изменений)", value: audit}
           - {name: "02 — Сохранить системный диск и credentials для отката (VM работает)", value: protect}
+          - {name: "03 — Recreate VM2243 из архива + Import существующего ZFS (без erase)", value: recreate-import}
   - name: 40-CORE Infrastructure
     playbook: playbooks/core-pbs.yml
     description: "Audit CORE PVE/PBS infrastructure or prepare pbs-core; no backup synchronization"
