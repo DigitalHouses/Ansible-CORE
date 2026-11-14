@@ -40,6 +40,7 @@
       - -sha256
   register: core31_pbs_fingerprint_before
   changed_when: false
+  when: not core31_resume_stopped
 
 - name: Refuse missing original PBS TLS identity
   ansible.builtin.assert:
@@ -47,6 +48,7 @@
       - (core31_pbs_fingerprint_before.stdout | from_json).exitcode | int == 0
       - (core31_pbs_fingerprint_before.stdout | from_json)['out-data'] | trim | length > 40
     fail_msg: CORE31_PBS_ORIGINAL_TLS_IDENTITY_UNAVAILABLE
+  when: not core31_resume_stopped
 
 - name: Confirm guest archive is still held on preserved ZFS before cutover
   ansible.builtin.command:
@@ -67,6 +69,7 @@
   register: core31_guest_archive_check
   changed_when: false
   no_log: true
+  when: not core31_resume_stopped
 
 - name: Require healthy protected guest archive on retained physical disk
   ansible.builtin.assert:
@@ -74,12 +77,14 @@
       - core31_guest_archive_check.rc == 0
       - (core31_guest_archive_check.stdout | from_json).exitcode | int == 0
     fail_msg: CORE31_PRESERVED_GUEST_STATE_ARCHIVE_INVALID
+  when: not core31_resume_stopped
 
 - name: Shut down existing CORE PBS guest cleanly (no forced poweroff)
   ansible.builtin.command:
     argv: [qm, shutdown, "{{ core_media_vmid | string }}", --timeout, '180']
   register: core31_graceful_shutdown
   changed_when: true
+  when: not core31_resume_stopped
 
 - name: Verify no running VM before any deletion
   ansible.builtin.command:
@@ -91,7 +96,7 @@
   ansible.builtin.assert:
     that:
       - "core31_offline_state.stdout | trim == 'status: stopped'"
-      - core31_graceful_shutdown.rc == 0
+      - (core31_graceful_shutdown.rc | default(0)) == 0
     fail_msg: CORE31_VM_STILL_RUNNING_ABORT_DESTROY
 
 - name: Temporarily remove PVE deletion protection from stopped VM2243
@@ -263,6 +268,15 @@
         (core31_pbs_fingerprint_after.stdout | from_json)['out-data'] | trim
         == (core31_pbs_fingerprint_before.stdout | from_json)['out-data'] | trim
     fail_msg: CORE31_PBS_TLS_FINGERPRINT_CHANGED
+  when: not core31_resume_stopped
+
+- name: Require valid original PBS TLS identity also after interrupted shutdown
+  ansible.builtin.assert:
+    that:
+      - (core31_pbs_fingerprint_after.stdout | from_json).exitcode | int == 0
+      - (core31_pbs_fingerprint_after.stdout | from_json)['out-data'] | trim | length > 40
+    fail_msg: CORE31_RESTORED_PBS_TLS_CERTIFICATE_INVALID
+  when: core31_resume_stopped
 
 - name: Confirm native CORE PBS API available after guest import
   ansible.builtin.uri:

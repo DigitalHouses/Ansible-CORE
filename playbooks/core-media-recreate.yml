@@ -63,8 +63,25 @@
           - core31_expected_media_ip == '192.168.11.243'
         fail_msg: CORE31_WRONG_PVE_OR_IP_MAPPING
 
+    - name: Read VM2243 status to support interruption after clean shutdown
+      ansible.builtin.command:
+        argv: [qm, status, "{{ core_media_vmid | string }}"]
+      register: core31_initial_vm_status
+      changed_when: false
+
+    - name: Derive permitted continuation only for explicit recreate-import
+      ansible.builtin.set_fact:
+        core31_resume_stopped: >-
+          {{ core31_action == 'recreate-import'
+             and (core31_initial_vm_status.stdout | trim) == 'status: stopped' }}
+
     - name: Inspect guest, two PBS datastores and backup prerequisites safely
       ansible.builtin.include_tasks: ../tasks/core31-media-recreate-preflight.yml
+      when: not core31_resume_stopped
+
+    - name: Verify intact stopped VM and backup for interruption recovery
+      ansible.builtin.include_tasks: ../tasks/core31-resume-stopped-preflight.yml
+      when: core31_resume_stopped
 
     - name: Protect boot disk and guest credentials only on explicit action
       ansible.builtin.include_tasks: ../tasks/core31-media-protect.yml

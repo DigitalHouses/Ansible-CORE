@@ -1,0 +1,50 @@
+---
+# Resume an interrupted CORE31 operation after a clean shutdown, before
+# destructive steps. This never runs for an unrelated VM or a running guest.
+- name: Read untouched stopped CORE VM2243 configuration
+  ansible.builtin.command:
+    argv: [qm, config, "{{ core_media_vmid | string }}"]
+  register: core31_stopped_vm_config
+  changed_when: false
+
+- name: Require original CORE-owned VM with pinned virtual disk and PCI SATA
+  ansible.builtin.assert:
+    that:
+      - core31_stopped_vm_config.rc == 0
+      - >-
+        core31_stopped_vm_config.stdout is search('(?m)^name: (mediaserver-serzhan|mediaserver-dh-core)$')
+      - >-
+        core31_stopped_vm_config.stdout is search('(?m)^scsi0: local-lvm:vm-2243-disk-0,')
+      - >-
+        core31_stopped_vm_config.stdout is search('(?m)^hostpci0: ' ~ (core31_hardware.gpu_hostpci | regex_escape) ~ ',')
+      - >-
+        core31_stopped_vm_config.stdout is search('(?m)^hostpci1: ' ~ (core31_hardware.sata_hostpci | regex_escape) ~ ',')
+      - >-
+        core31_stopped_vm_config.stdout is search('(?m)^ipconfig0: ip=' ~ (core31_expected_media_ip | regex_escape) ~ '/24,gw=')
+      - >-
+        core31_stopped_vm_config.stdout is search('(?m)^protection: 1$')
+    fail_msg: CORE31_RESUME_REFUSED_FOREIGN_OR_MODIFIED_VM
+
+- name: Find protected native PVE archive after interrupted cutover
+  ansible.builtin.find:
+    paths: /var/lib/vz/dump
+    patterns: 'vzdump-qemu-2243-*.vma.zst'
+    file_type: file
+    recurse: false
+  register: core31_boot_archives
+  changed_when: false
+
+- name: Refuse restart of cutover without the exact verified boot archive
+  ansible.builtin.assert:
+    that:
+      - core31_boot_archives.matched == 1
+      - (core31_boot_archives.files[0].size | int) > 104857600
+    fail_msg: CORE31_RESUME_BOOT_ARCHIVE_MISSING
+
+- name: Report safe continuation only after original clean shutdown
+  ansible.builtin.debug:
+    msg:
+      - CORE31_MODE=RECREATE_IMPORT_RESUME_STOPPED
+      - CORE31_VM2243=STOPPED_ORIGINAL_VM_INTACT
+      - CORE31_ZFS=SATA_PASSTHROUGH_WILL_NOT_BE_ERASED
+      - CORE31_ARCHIVE=ON_PVE_NVME_SHA256_CHECK_FOLLOWS
