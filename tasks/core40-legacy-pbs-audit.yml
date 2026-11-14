@@ -97,5 +97,5 @@
       - "CORE40_LEGACY_PVE_SCHEDULE_IDS={{ core40_legacy_backup_jobs | map(attribute='id') | join(',') if core40_legacy_backup_jobs | length else 'NONE' }}"
       - "CORE40_PBS_CORE_DATASTORE={{ 'PRESENT' if core40_pbs_central | length == 1 else 'NOT_CONFIRMED' }}"
       - "CORE40_PBS_LEGACY_DATASTORE={{ 'PRESENT' if core40_pbs_legacy | length == 1 else 'NOT_CONFIGURED' }}"
-      - "CORE40_PBS_LEGACY_HAS_SNAPSHOTS={{ 'YES' if ((core40_legacy_snapshots_probe.stdout | from_json)['out-data'] | trim | length > 0) else 'NO' if core40_pbs_legacy | length == 1 else 'UNKNOWN' }}"
+      - "CORE40_PBS_LEGACY_HAS_SNAPSHOTS={{ 'UNKNOWN' if core40_pbs_legacy | length != 1 else ('YES' if ((core40_legacy_snapshots_probe.stdout | from_json)['out-data'] | trim | length > 0) else 'NO') }}"
       - CORE40_LEGACY_CLEANUP=NOT_PERFORMED
