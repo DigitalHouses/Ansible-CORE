@@ -90,7 +90,8 @@
         argv: [qm, status, '2243']
       register: core_media_vm_status
       changed_when: false
-      failed_when: core_media_vm_status.stdout | trim != 'status: running'
+      failed_when: >-
+        core_media_vm_status.stdout | trim != 'status: running'
 
     - name: Read actual guest LAN addresses through QEMU Guest Agent
       ansible.builtin.command:
