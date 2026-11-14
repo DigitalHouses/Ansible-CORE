@@ -85,6 +85,27 @@ Prune/Modify или доступ к `pbs-serzhan`.
 
 ## CORE №50 — штатный ручной Verify полученных HOME snapshots
 
+### Исправление приёмки Verify — 14.11.2026
+
+CORE Semaphore №50 Job **#85** завершился с Ansible Error на шаге
+`Start and wait for native CORE PBS Verify`; подробный результат был
+скрыт `no_log`. Это **не доказательство порчи snapshots** и не
+доказательство успешного окончания самого Verify.
+
+Первый вариант Ansible ошибочно требовал буквальную строку `TASK OK`
+в `qm guest exec` stdout. Длинный вывод PBS CLI может быть обрезан
+при передаче через QEMU Guest Agent. Теперь проверяются:
+
+- успешное завершение PBS CLI по нативному `exitcode`;
+- запись нового `verificationjob` в `proxmox-backup-manager task list
+  --all true --output-format json`, только по нашему job ID и времени;
+- наличие `endtime` и точный итоговый статус `OK` именно этого worker.
+
+При ошибке реального Verify Ansible также завершится с ошибкой.
+Никакие VM, snapshots, ключи, datastore, schedules или другие
+namespaces код исправления не изменяет. Повторный реальный запуск
+`50-Central Backup → 03 Verify` требуется для окончательной приёмки.
+
 После успешных HOME №34 Jobs **#133** (первый Push) и **#134**
 (повторный Push) проверены на CORE PBS **21 snapshot** в
 `pbs-core/serzhan-home` (8 VM + 13 CT).
