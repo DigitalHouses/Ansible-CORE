@@ -8,6 +8,7 @@
   gather_facts: false
   vars_files:
     - /etc/digitalhouses/pve.yml
+    - ../vars/core-resource-standard.yml
   vars:
     core50_site: "{{ lookup('ansible.builtin.file', '/etc/digitalhouses/site-id') | trim }}"
     core50_profile: "{{ lookup('ansible.builtin.file', '/etc/digitalhouses/site-profile') | trim }}"
@@ -22,6 +23,9 @@
           - pve.node | length > 0
           - core50_action in ['audit', 'prepare', 'verify']
         fail_msg: CORE50_MUST_RUN_FROM_DH_CORE_SEMAPHORE
+
+    - name: Assert canonical CORE bootstrap profile and guest ID mapping
+      ansible.builtin.include_tasks: ../tasks/core-resource-standard-assert.yml
 
     - name: Register only the pinned CORE PVE
       ansible.builtin.add_host:
