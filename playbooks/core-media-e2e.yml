@@ -8,6 +8,7 @@
   gather_facts: false
   vars_files:
     - /etc/digitalhouses/pve.yml
+    - ../vars/core-resource-standard.yml
   vars:
     core_media_site: "{{ lookup('ansible.builtin.file', '/etc/digitalhouses/site-id') | trim }}"
     core_media_profile: "{{ lookup('ansible.builtin.file', '/etc/digitalhouses/site-profile') | trim }}"
@@ -22,6 +23,9 @@
           - pve.node | length > 0
           - core_media_action in ['audit', 'repair-portal']
         fail_msg: CORE_MEDIA30_WRONG_SITE_OR_ACTION
+
+    - name: Assert deterministic CORE IP, VMID and CTID mapping
+      ansible.builtin.include_tasks: ../tasks/core-resource-standard-assert.yml
 
     - name: Register existing trusted CORE PVE only
       ansible.builtin.add_host:
@@ -43,11 +47,18 @@
 - name: "30 | E2E CORE VM2243 portal links and service availability"
   hosts: core_media_pve_group
   gather_facts: false
+  vars_files:
+    - ../vars/core-resource-standard.yml
   vars:
     # Single source of truth: Proxmox VM2243 static ipconfig0 (not a literal IP).
     core_media_ipv4: >-
       {{ (core_media_vm_config.stdout
           | regex_findall('(?m)^ipconfig0: ip=([0-9.]+)/24,gw=')
+          | first | default('')) }}
+    core_media_expected_ipv4: "{{ (core_media_pve_ipv4.split('.')[:3] + [core_resource_standard.media_octet | string]) | join('.') }}"
+    core_media_vm_name: >-
+      {{ (core_media_vm_config.stdout
+          | regex_findall('(?m)^name: ([a-z0-9-]+)$')
           | first | default('')) }}
     core_media_network: "{{ core_media_ipv4.split('.')[:3] | join('.') }}.0/24"
     core_media_portal_file: /var/www/dh-media-portal/index.html
@@ -78,16 +89,17 @@
 
     - name: Read actual existing media VM configuration
       ansible.builtin.command:
-        argv: [qm, config, '2243']
+        argv: [qm, config, "{{ core_media_vmid | string }}"]
       register: core_media_vm_config
       changed_when: false
 
     - name: Require the CORE media guest and canonical configured IP
       ansible.builtin.assert:
         that:
-          - >-
-            core_media_vm_config.stdout is search('(?m)^name: mediaserver-serzhan$')
+          - core_media_vm_name in [core_resource_standard.media_vm_name, core_resource_standard.media_legacy_vm_name]
           - core_media_ipv4 is match('^[0-9]{1,3}([.][0-9]{1,3}){3}$')
+          - core_media_ipv4 == core_media_expected_ipv4
+          - (core_media_vmid | int) == (core_resource_standard.vm_offset | int) + (core_media_ipv4.split('.')[3] | int)
           - core_media_ipv4.split('.')[:3] == core_media_pve_ipv4.split('.')[:3]
           - >-
             core_media_vm_config.stdout is search(
@@ -258,7 +270,9 @@
       ansible.builtin.debug:
         msg:
           - "CORE_MEDIA30_ACTION={{ core_media_action }}"
-          - CORE_MEDIA30_VM=2243
+          - "CORE_MEDIA30_VM={{ core_media_vmid }}"
+          - "CORE_MEDIA30_VM_NAME={{ core_media_vm_name }}"
+          - "CORE_MEDIA30_VM_NAME_STANDARD={{ 'CANONICAL' if core_media_vm_name == core_resource_standard.media_vm_name else 'LEGACY_RECREATE_PENDING' }}"
           - CORE_MEDIA30_IP_SOURCE=PVE_VM_IPCONFIG0
           - "CORE_MEDIA30_NGINX_CONFIG={{ 'REPAIRED' if core30_nginx_reload is changed else 'ALREADY_CURRENT' }}"
           - CORE_MEDIA30_TLS_IDENTITY=VM_IP_VERIFIED

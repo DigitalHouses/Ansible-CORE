@@ -7,13 +7,19 @@
   register: core40_vm_config
   changed_when: false
 
-- name: Refuse a different VM or changed legacy guest identity
+- name: Require the standard CORE VM IP and canonical or transitional legacy identity
   ansible.builtin.assert:
     that:
-      - "'name: mediaserver-serzhan' in core40_vm_config.stdout_lines"
+      - >-
+        ('name: ' ~ core_resource_standard.media_vm_name) in core40_vm_config.stdout_lines
+        or ('name: ' ~ core_resource_standard.media_legacy_vm_name) in core40_vm_config.stdout_lines
       - "'agent: enabled=1' in core40_vm_config.stdout_lines"
-      - "'ipconfig0: ip=192.168.11.243/24,gw=192.168.11.1' in core40_vm_config.stdout_lines"
-    fail_msg: CORE40_LEGACY_GUEST_IDENTITY_CHANGED
+      - >-
+        ('ipconfig0: ip=' ~ (core40_pve_ipv4.split('.')[:3] | join('.'))
+        ~ '.' ~ (core_resource_standard.media_octet | string)
+        ~ '/24,gw=192.168.11.1') in core40_vm_config.stdout_lines
+      - (core_media_vmid | int) == (core_resource_standard.vm_offset | int) + (core_resource_standard.media_octet | int)
+    fail_msg: CORE40_GUEST_IDENTITY_OR_ALLOCATION_DRIFT
 
 - name: Verify existing media ZFS pool is online in trusted guest
   ansible.builtin.command:

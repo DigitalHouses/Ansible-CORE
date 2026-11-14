@@ -7,6 +7,7 @@
   gather_facts: false
   vars_files:
     - /etc/digitalhouses/pve.yml
+    - ../vars/core-resource-standard.yml
   vars:
     core71_action: "{{ DH_CORE71_ACTION | default('audit', true) }}"
     core71_target: "{{ DH_CORE71_TARGET | default('both', true) }}"
@@ -32,6 +33,9 @@
         fail_msg: CORE71_TAILSCALE_AUTH_KEY_MISSING_IN_CORE05
       when: core71_action in ['join', 'migrate']
       no_log: true
+
+    - name: Assert canonical CORE bootstrap profile and guest ID mapping
+      ansible.builtin.include_tasks: ../tasks/core-resource-standard-assert.yml
 
     - name: Register only the pinned CORE PVE management node
       ansible.builtin.add_host:

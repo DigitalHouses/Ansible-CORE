@@ -1,0 +1,88 @@
+---
+- name: Contract test for CORE addressing, IDs and transitional VM naming
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - ../vars/core-resource-standard.yml
+  vars:
+    root: "{{ playbook_dir | dirname }}"
+    bootstrap: "{{ lookup('ansible.builtin.file', root ~ '/bootstrap/install.sh') }}"
+    media: "{{ lookup('ansible.builtin.file', root ~ '/playbooks/core-media-e2e.yml') | from_yaml }}"
+    infrastructure: "{{ lookup('ansible.builtin.file', root ~ '/playbooks/core-pbs.yml') | from_yaml }}"
+    backup: "{{ lookup('ansible.builtin.file', root ~ '/playbooks/core-backup.yml') | from_yaml }}"
+    tailscale: "{{ lookup('ansible.builtin.file', root ~ '/playbooks/core-tailscale.yml') | from_yaml }}"
+    datastore: "{{ lookup('ansible.builtin.file', root ~ '/tasks/core40-pbs-datastore.yml') | from_yaml }}"
+    core40_pve_ipv4: 192.168.11.240
+    core40_vm_config:
+      stdout_lines:
+        - "name: mediaserver-serzhan"
+        - "agent: enabled=1"
+        - "ipconfig0: ip=192.168.11.243/24,gw=192.168.11.1"
+  tasks:
+    - name: Require CORE bootstrap, address blocks and exact VM/CT mapping
+      ansible.builtin.assert:
+        that:
+          - core_resource_standard.profile == 'core'
+          - core_resource_standard.site_id == 'dh-core'
+          - core_resource_standard.pve_octet == 240
+          - core_resource_standard.ansible_octet == 241
+          - core_resource_standard.ha_octet == 242
+          - core_resource_standard.media_octet == 243
+          - core_resource_standard.postgres_octet == 244
+          - core_ansible_ctid | int == 1241
+          - core_ha_vmid | int == 2242
+          - core_media_vmid | int == 2243
+          - core_postgres_ctid | int == 1244
+          - "'PVE_OCTET=240' in bootstrap"
+          - "'RUNNER_OCTET=241' in bootstrap"
+          - "'CTID=\"' in bootstrap"
+          - core_resource_standard.media_vm_name == 'mediaserver-dh-core'
+
+    - name: Require standard preflight included in all CORE service playbooks
+      ansible.builtin.assert:
+        that:
+          - "'core-resource-standard-assert.yml' in (media | to_json)"
+          - "'core-resource-standard-assert.yml' in (infrastructure | to_json)"
+          - "'core-resource-standard-assert.yml' in (backup | to_json)"
+          - "'core-resource-standard-assert.yml' in (tailscale | to_json)"
+          - "'core_media_ipv4 == core_media_expected_ipv4' in (media | to_json)"
+          - "'core_media_vmid | int' in (media | to_json)"
+          - "'LEGACY_RECREATE_PENDING' in (media | to_json)"
+          - "'qm, destroy' not in (media | to_json)"
+          - "'zpool, destroy' not in (media | to_json)"
+
+    - name: Require native CORE40 identity gate explicitly recognizes both names
+      ansible.builtin.assert:
+        that:
+          - "'core_resource_standard.media_vm_name' in (datastore | to_json)"
+          - "'core_resource_standard.media_legacy_vm_name' in (datastore | to_json)"
+          - "'core_resource_standard.media_octet' in (datastore | to_json)"
+          - "'core_media_vmid | int' in (datastore | to_json)"
+
+    - name: Simulate the legacy VM acceptance with approved CORE IP and VMID
+      ansible.builtin.assert:
+        that:
+          - >-
+            ('name: ' ~ core_resource_standard.media_vm_name) in core40_vm_config.stdout_lines
+            or ('name: ' ~ core_resource_standard.media_legacy_vm_name) in core40_vm_config.stdout_lines
+          - >-
+            ('ipconfig0: ip=' ~ (core40_pve_ipv4.split('.')[:3] | join('.'))
+            ~ '.' ~ (core_resource_standard.media_octet | string)
+            ~ '/24,gw=192.168.11.1') in core40_vm_config.stdout_lines
+
+    - name: Simulate the canonical VM identity used after Recreate Import
+      ansible.builtin.assert:
+        that:
+          - >-
+            ('name: ' ~ core_resource_standard.media_vm_name) in core40_vm_config.stdout_lines
+          - >-
+            ('ipconfig0: ip=' ~ (core40_pve_ipv4.split('.')[:3] | join('.'))
+            ~ '.' ~ (core_resource_standard.media_octet | string)
+            ~ '/24,gw=192.168.11.1') in core40_vm_config.stdout_lines
+      vars:
+        core40_vm_config:
+          stdout_lines:
+            - "name: mediaserver-dh-core"
+            - "agent: enabled=1"
+            - "ipconfig0: ip=192.168.11.243/24,gw=192.168.11.1"
