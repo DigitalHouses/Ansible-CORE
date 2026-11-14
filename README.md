@@ -5,6 +5,7 @@ Independent native Ansible + existing Semaphore for central **dh-core** infrastr
 - **00** — reconcile CORE Semaphore catalog.
 - **05-Ввести и проверить credentials** — maintain shared native Semaphore credentials for all CORE tasks.
 - **30-CORE Media E2E** — validate canonical CORE VM2243/.243 identity and services; detect historical VM name pending Recreate + Import.
+- **31-CORE Recreate + Import — подготовка** — read-only DR preflight for VM2243 and optional root-only PVE boot-disk backup plus preserved ZFS credentials export; no recreate/erase.
 - **40-CORE Infrastructure** — audit CORE PVE/PBS infrastructure; safely
   prepare dedicated `pbs-core` datastore when explicitly selected.
 - **50-Central Backup** — audit central PBS; pilot serzhan-home namespace,
@@ -21,6 +22,7 @@ runs local backups.
 Backblaze B2 is deferred (source HOME vs CORE not decided).
 
 Resource IDs and naming: `docs/core-resource-standard.md`.
+CORE VM2243 recovery prerequisites: `docs/task31-core-recreate-import.md`.
 
 See `bootstrap/README.md`, `docs/repository-split.md`,
 `docs/task05-credentials.md`, `docs/task40-central-pbs.md`,
