@@ -34,7 +34,7 @@
           - "'sed' in repair['ansible.builtin.command'].argv"
           - "'-i' in repair['ansible.builtin.command'].argv"
           - "'s/192[.]168[.]11[.]250/192.168.11.243/g' in repair['ansible.builtin.command'].argv"
-          - "'/var/www/dh-media-portal/index.html' in repair['ansible.builtin.command'].argv"
+          - "'{{ core_media_portal_file }}' in repair['ansible.builtin.command'].argv"
           - "'core_media_action == 'repair-portal'' in repair.when"
           - "media[1].vars.core_media_targets | length == 12"
           - "'core_media_links | length == 12' in alltext"
