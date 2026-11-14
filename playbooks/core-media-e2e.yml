@@ -118,6 +118,9 @@
           - core_media_ipv4 in (core_media_guest_ip_raw.stdout | from_json)['out-data'].split()
         fail_msg: CORE_MEDIA30_GUEST_LAN_IP_MISMATCH
 
+    - name: Validate active NoCloud network and retained guest cache against the VM IP parameter
+      ansible.builtin.include_tasks: ../tasks/core30-media-cloudinit.yml
+
     - name: Require the deployed portal document exists
       ansible.builtin.command:
         argv: [qm, guest, exec, '2243', --, test, -f, "{{ core_media_portal_file }}"]
@@ -259,6 +262,8 @@
           - CORE_MEDIA30_IP_SOURCE=PVE_VM_IPCONFIG0
           - "CORE_MEDIA30_NGINX_CONFIG={{ 'REPAIRED' if core30_nginx_reload is changed else 'ALREADY_CURRENT' }}"
           - CORE_MEDIA30_TLS_IDENTITY=VM_IP_VERIFIED
+          - CORE_MEDIA30_CLOUDINIT=VM_IP_VERIFIED
+          - "CORE_MEDIA30_CLOUDINIT_REPAIRED={{ core30_cloud_cache_repaired is changed }}"
           - "CORE_MEDIA30_GUEST_IP={{ core_media_ipv4 }}"
           - "CORE_MEDIA30_PORTAL_LINKS={{ core_media_links | length }} VALID"
           - "CORE_MEDIA30_WEB_SERVICES={{ core_media_http_checks.results | length }} HTTP_200"

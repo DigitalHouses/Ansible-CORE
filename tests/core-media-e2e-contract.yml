@@ -11,6 +11,7 @@
     checks: "{{ media[1].tasks }}"
     repair: "{{ checks | selectattr('name', 'search', 'Repair observed stale') | first }}"
     nginx_tls: "{{ lookup('ansible.builtin.file', root ~ '/tasks/core30-media-nginx-tls.yml') | from_yaml }}"
+    cloud_ip: "{{ lookup('ansible.builtin.file', root ~ '/tasks/core30-media-cloudinit.yml') | from_yaml }}"
     alltext: "{{ media | to_json }}"
     all_nginx: "{{ nginx_tls | to_json }}"
   tasks:
@@ -60,3 +61,17 @@
           - "'nginx' in all_nginx"
           - "'192.168.11.250' not in all_nginx"
           - "'192.168.11.243' not in all_nginx"
+
+    - name: Require active PVE and guest NoCloud metadata derive from VM IP
+      ansible.builtin.assert:
+        that:
+          - "'core30-media-cloudinit.yml' in alltext"
+          - "'cloudinit' in (cloud_ip | to_json)"
+          - "'dump' in (cloud_ip | to_json)"
+          - "'/etc/netplan/50-cloud-init.yaml' in (cloud_ip | to_json)"
+          - "'/var/lib/cloud/instance/network-config.json' in (cloud_ip | to_json)"
+          - "'core30_cloud_cached_ipv4' in (cloud_ip | to_json)"
+          - "'core_media_ipv4' in (cloud_ip | to_json)"
+          - "'network-config.json' in (cloud_ip | to_json)"
+          - "'cloud-init clean' not in (cloud_ip | to_json)"
+          - "'systemctl restart' not in (cloud_ip | to_json)"
