@@ -1,0 +1,41 @@
+---
+- name: Contract checks for CORE-only Media Server E2E
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    root: "{{ playbook_dir | dirname }}"
+    catalog: "{{ lookup('ansible.builtin.file', root ~ '/catalog/tasks.yml') | from_yaml }}"
+    media: "{{ lookup('ansible.builtin.file', root ~ '/playbooks/core-media-e2e.yml') | from_yaml }}"
+    task30: "{{ (catalog.tasks | selectattr('name', 'equalto', '30-CORE Media E2E') | list)[0] }}"
+    checks: "{{ media[1].tasks }}"
+    repair: "{{ checks | selectattr('name', 'search', 'Repair only obsolete') | first }}"
+    alltext: "{{ media | to_json }}"
+  tasks:
+    - name: Require two explicit safe actions and no destructive services
+      ansible.builtin.assert:
+        that:
+          - task30.playbook == 'playbooks/core-media-e2e.yml'
+          - task30.survey_vars[0].default_value == 'audit'
+          - task30.survey_vars[0]['values'] | map(attribute='value') | list == ['audit', 'repair-portal']
+          - "'192.168.11.240' in alltext"
+          - "'192.168.11.243' in alltext"
+          - "'2243' in alltext"
+          - "'192.168.11.250' in alltext"
+          - "'qm, destroy' not in alltext"
+          - "'pct, destroy' not in alltext"
+          - "'zpool' not in alltext"
+          - "'PBS_PASSWORD' not in alltext"
+
+    - name: Require bounded repair of portal HTML and 12 service targets
+      ansible.builtin.assert:
+        that:
+          - "'qm' == repair['ansible.builtin.command'].argv[0]"
+          - "'sed' in repair['ansible.builtin.command'].argv"
+          - "'-i' in repair['ansible.builtin.command'].argv"
+          - "'s/192[.]168[.]11[.]250/192.168.11.243/g' in repair['ansible.builtin.command'].argv"
+          - "'/var/www/dh-media-portal/index.html' in repair['ansible.builtin.command'].argv"
+          - "'core_media_action == 'repair-portal'' in repair.when"
+          - "media[1].vars.core_media_targets | length == 12"
+          - "'core_media_links | length == 12' in alltext"
+          - "'UNAUTHENTICATED_401' in alltext"
