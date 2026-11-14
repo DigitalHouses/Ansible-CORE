@@ -103,7 +103,7 @@
         that:
           - core_media_guest_ip_raw.rc == 0
           - (core_media_guest_ip_raw.stdout | from_json).exitcode | int == 0
-          - (core_media_guest_ip_raw.stdout | from_json)['out-data'].split() is contains(core_media_ipv4)
+          - core_media_ipv4 in (core_media_guest_ip_raw.stdout | from_json)['out-data'].split()
         fail_msg: CORE_MEDIA30_GUEST_LAN_IP_MISMATCH
 
     - name: Require the deployed portal document exists
