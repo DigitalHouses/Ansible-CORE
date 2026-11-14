@@ -80,9 +80,348 @@
     - name: Require the CORE media guest and canonical configured IP
       ansible.builtin.assert:
         that:
-          - core_media_vm_config.stdout is search('(?m)^name: mediaserver-serzhan$')
-          - core_media_vm_config.stdout is search('(?m)^ipconfig0: ip=192[.]168[.]11[.]243/24,gw=192[.]168[.]11[.]1$')
-          - core_media_vm_config.stdout is search('(?m)^agent: enabled=1')
+          - >-
+            core_media_vm_config.stdout is search('(?m)^name: mediaserver-serzhan
+        fail_msg: CORE_MEDIA30_VM2243_IDENTITY_OR_IP_MISMATCH
+
+    - name: Require media VM2243 is actually running
+      ansible.builtin.command:
+        argv: [qm, status, '2243']
+      register: core_media_vm_status
+      changed_when: false
+      failed_when: >-
+        core_media_vm_status.stdout | trim != 'status: running'
+
+    - name: Read actual guest LAN addresses through QEMU Guest Agent
+      ansible.builtin.command:
+        argv: [qm, guest, exec, '2243', --, hostname, -I]
+      register: core_media_guest_ip_raw
+      changed_when: false
+
+    - name: Require the running guest owns its declared LAN address
+      ansible.builtin.assert:
+        that:
+          - core_media_guest_ip_raw.rc == 0
+          - (core_media_guest_ip_raw.stdout | from_json).exitcode | int == 0
+          - core_media_ipv4 in (core_media_guest_ip_raw.stdout | from_json)['out-data'].split()
+        fail_msg: CORE_MEDIA30_GUEST_LAN_IP_MISMATCH
+
+    - name: Require the deployed portal document exists
+      ansible.builtin.command:
+        argv: [qm, guest, exec, '2243', --, test, -f, "{{ core_media_portal_file }}"]
+      register: core_media_portal_file_status
+      changed_when: false
+      failed_when: >-
+        core_media_portal_file_status.rc != 0 or
+        (core_media_portal_file_status.stdout | from_json).exitcode | int != 0
+
+    - name: Fetch current portal HTML from the actual CORE guest
+      ansible.builtin.uri:
+        url: "http://{{ core_media_ipv4 }}/"
+        return_content: true
+        status_code: 200
+        use_proxy: false
+        timeout: 12
+      register: core_media_portal_before
+      changed_when: false
+
+    - name: Collect visible IPv4 references without guessing a browser cache state
+      ansible.builtin.set_fact:
+        core_media_before_ipv4: >-
+          {{ core_media_portal_before.content
+             | regex_findall('192[.]168[.]11[.][0-9]+') | unique | list }}
+
+    - name: Refuse to rewrite unrelated IPs or unexpected web content
+      ansible.builtin.assert:
+        that:
+          - "'DigitalHouses' in core_media_portal_before.content"
+          - core_media_before_ipv4 | length > 0
+          - >-
+            core_media_before_ipv4 | difference([core_media_ipv4, core_media_legacy_ipv4])
+            | length == 0
+        fail_msg: CORE_MEDIA30_PORTAL_HAS_UNKNOWN_ADDRESSES
+
+    - name: Repair only obsolete .250 references in CORE's existing portal file
+      ansible.builtin.command:
+        argv:
+          - qm
+          - guest
+          - exec
+          - '2243'
+          - --
+          - sed
+          - -i
+          - 's/192[.]168[.]11[.]250/192.168.11.243/g'
+          - "{{ core_media_portal_file }}"
+      register: core_media_portal_repair
+      changed_when: true
+      failed_when: >-
+        core_media_portal_repair.rc != 0 or
+        (core_media_portal_repair.stdout | from_json).exitcode | int != 0
+      when:
+        - core_media_action == 'repair-portal'
+        - core_media_legacy_ipv4 in core_media_before_ipv4
+
+    - name: Read live portal after audit or surgical repair
+      ansible.builtin.uri:
+        url: "http://{{ core_media_ipv4 }}/"
+        return_content: true
+        status_code: 200
+        use_proxy: false
+        timeout: 12
+      register: core_media_portal_after
+      changed_when: false
+
+    - name: Parse all actual clickable HTTP application URLs
+      ansible.builtin.set_fact:
+        core_media_links: >-
+          {{ core_media_portal_after.content
+             | regex_findall('<a[^>]*href="(https?://[^"]+)"') }}
+        core_media_all_ip_refs: >-
+          {{ core_media_portal_after.content
+             | regex_findall('192[.]168[.]11[.][0-9]+') | unique | list }}
+
+    - name: Require every portal link, Windows share and macOS share uses .243
+      ansible.builtin.assert:
+        that:
+          - core_media_all_ip_refs == [core_media_ipv4]
+          - core_media_links | length == 12
+          - >-
+            (core_media_links | select(
+             'match', '^https?://192[.]168[.]11[.]243(:[0-9]+)?/'
+             ) | list | length) == 12
+          - "'smb://192.168.11.243/Media' in core_media_portal_after.content"
+          - "'smb://192.168.11.243/Documents' in core_media_portal_after.content"
+          - "'192.168.11.250' not in core_media_portal_after.content"
+        fail_msg: CORE_MEDIA30_PORTAL_LINKS_NOT_CANONICAL
+
+    - name: Probe all 12 actual LAN web services without logging in or changing state
+      ansible.builtin.uri:
+        url: "{{ item.url }}"
+        method: GET
+        follow_redirects: all
+        status_code: 200
+        validate_certs: false
+        use_proxy: false
+        timeout: 10
+      loop: "{{ core_media_targets }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: core_media_http_checks
+      changed_when: false
+
+    - name: Require every advertised web application responded
+      ansible.builtin.assert:
+        that:
+          - core_media_http_checks.results | length == 12
+          - >-
+            core_media_http_checks.results
+            | rejectattr('status', 'equalto', 200) | list | length == 0
+        fail_msg: CORE_MEDIA30_WEB_SERVICE_E2E_FAILED
+
+    - name: Require Samba server accepts TCP from CORE PVE
+      ansible.builtin.wait_for:
+        host: "{{ core_media_ipv4 }}"
+        port: 445
+        state: started
+        timeout: 8
+
+    - name: Require protected rclone RC API rejects unauthenticated access
+      ansible.builtin.uri:
+        url: "http://{{ core_media_ipv4 }}:5572/"
+        method: GET
+        status_code: 401
+        follow_redirects: none
+        use_proxy: false
+        timeout: 8
+      register: core_media_rclone_reject
+      changed_when: false
+
+    - name: Report CORE Media Server E2E acceptance without changing PBS or VM
+      ansible.builtin.debug:
+        msg:
+          - "CORE_MEDIA30_ACTION={{ core_media_action }}"
+          - CORE_MEDIA30_VM=2243
+          - "CORE_MEDIA30_GUEST_IP={{ core_media_ipv4 }}"
+          - "CORE_MEDIA30_PORTAL_LINKS={{ core_media_links | length }} VALID"
+          - "CORE_MEDIA30_WEB_SERVICES={{ core_media_http_checks.results | length }} HTTP_200"
+          - CORE_MEDIA30_SMB=TCP_445_OPEN
+          - CORE_MEDIA30_RCLONE_API=UNAUTHENTICATED_401
+          - "CORE_MEDIA30_PORTAL_REPAIRED={{ core_media_portal_repair is changed }}"
+          - CORE_MEDIA30_E2E=PASS
+)
+          - >-
+            core_media_vm_config.stdout is search('(?m)^ipconfig0: ip=192[.]168[.]11[.]243/24,gw=192[.]168[.]11[.]1
+        fail_msg: CORE_MEDIA30_VM2243_IDENTITY_OR_IP_MISMATCH
+
+    - name: Require media VM2243 is actually running
+      ansible.builtin.command:
+        argv: [qm, status, '2243']
+      register: core_media_vm_status
+      changed_when: false
+      failed_when: >-
+        core_media_vm_status.stdout | trim != 'status: running'
+
+    - name: Read actual guest LAN addresses through QEMU Guest Agent
+      ansible.builtin.command:
+        argv: [qm, guest, exec, '2243', --, hostname, -I]
+      register: core_media_guest_ip_raw
+      changed_when: false
+
+    - name: Require the running guest owns its declared LAN address
+      ansible.builtin.assert:
+        that:
+          - core_media_guest_ip_raw.rc == 0
+          - (core_media_guest_ip_raw.stdout | from_json).exitcode | int == 0
+          - core_media_ipv4 in (core_media_guest_ip_raw.stdout | from_json)['out-data'].split()
+        fail_msg: CORE_MEDIA30_GUEST_LAN_IP_MISMATCH
+
+    - name: Require the deployed portal document exists
+      ansible.builtin.command:
+        argv: [qm, guest, exec, '2243', --, test, -f, "{{ core_media_portal_file }}"]
+      register: core_media_portal_file_status
+      changed_when: false
+      failed_when: >-
+        core_media_portal_file_status.rc != 0 or
+        (core_media_portal_file_status.stdout | from_json).exitcode | int != 0
+
+    - name: Fetch current portal HTML from the actual CORE guest
+      ansible.builtin.uri:
+        url: "http://{{ core_media_ipv4 }}/"
+        return_content: true
+        status_code: 200
+        use_proxy: false
+        timeout: 12
+      register: core_media_portal_before
+      changed_when: false
+
+    - name: Collect visible IPv4 references without guessing a browser cache state
+      ansible.builtin.set_fact:
+        core_media_before_ipv4: >-
+          {{ core_media_portal_before.content
+             | regex_findall('192[.]168[.]11[.][0-9]+') | unique | list }}
+
+    - name: Refuse to rewrite unrelated IPs or unexpected web content
+      ansible.builtin.assert:
+        that:
+          - "'DigitalHouses' in core_media_portal_before.content"
+          - core_media_before_ipv4 | length > 0
+          - >-
+            core_media_before_ipv4 | difference([core_media_ipv4, core_media_legacy_ipv4])
+            | length == 0
+        fail_msg: CORE_MEDIA30_PORTAL_HAS_UNKNOWN_ADDRESSES
+
+    - name: Repair only obsolete .250 references in CORE's existing portal file
+      ansible.builtin.command:
+        argv:
+          - qm
+          - guest
+          - exec
+          - '2243'
+          - --
+          - sed
+          - -i
+          - 's/192[.]168[.]11[.]250/192.168.11.243/g'
+          - "{{ core_media_portal_file }}"
+      register: core_media_portal_repair
+      changed_when: true
+      failed_when: >-
+        core_media_portal_repair.rc != 0 or
+        (core_media_portal_repair.stdout | from_json).exitcode | int != 0
+      when:
+        - core_media_action == 'repair-portal'
+        - core_media_legacy_ipv4 in core_media_before_ipv4
+
+    - name: Read live portal after audit or surgical repair
+      ansible.builtin.uri:
+        url: "http://{{ core_media_ipv4 }}/"
+        return_content: true
+        status_code: 200
+        use_proxy: false
+        timeout: 12
+      register: core_media_portal_after
+      changed_when: false
+
+    - name: Parse all actual clickable HTTP application URLs
+      ansible.builtin.set_fact:
+        core_media_links: >-
+          {{ core_media_portal_after.content
+             | regex_findall('<a[^>]*href="(https?://[^"]+)"') }}
+        core_media_all_ip_refs: >-
+          {{ core_media_portal_after.content
+             | regex_findall('192[.]168[.]11[.][0-9]+') | unique | list }}
+
+    - name: Require every portal link, Windows share and macOS share uses .243
+      ansible.builtin.assert:
+        that:
+          - core_media_all_ip_refs == [core_media_ipv4]
+          - core_media_links | length == 12
+          - >-
+            (core_media_links | select(
+             'match', '^https?://192[.]168[.]11[.]243(:[0-9]+)?/'
+             ) | list | length) == 12
+          - "'smb://192.168.11.243/Media' in core_media_portal_after.content"
+          - "'smb://192.168.11.243/Documents' in core_media_portal_after.content"
+          - "'192.168.11.250' not in core_media_portal_after.content"
+        fail_msg: CORE_MEDIA30_PORTAL_LINKS_NOT_CANONICAL
+
+    - name: Probe all 12 actual LAN web services without logging in or changing state
+      ansible.builtin.uri:
+        url: "{{ item.url }}"
+        method: GET
+        follow_redirects: all
+        status_code: 200
+        validate_certs: false
+        use_proxy: false
+        timeout: 10
+      loop: "{{ core_media_targets }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: core_media_http_checks
+      changed_when: false
+
+    - name: Require every advertised web application responded
+      ansible.builtin.assert:
+        that:
+          - core_media_http_checks.results | length == 12
+          - >-
+            core_media_http_checks.results
+            | rejectattr('status', 'equalto', 200) | list | length == 0
+        fail_msg: CORE_MEDIA30_WEB_SERVICE_E2E_FAILED
+
+    - name: Require Samba server accepts TCP from CORE PVE
+      ansible.builtin.wait_for:
+        host: "{{ core_media_ipv4 }}"
+        port: 445
+        state: started
+        timeout: 8
+
+    - name: Require protected rclone RC API rejects unauthenticated access
+      ansible.builtin.uri:
+        url: "http://{{ core_media_ipv4 }}:5572/"
+        method: GET
+        status_code: 401
+        follow_redirects: none
+        use_proxy: false
+        timeout: 8
+      register: core_media_rclone_reject
+      changed_when: false
+
+    - name: Report CORE Media Server E2E acceptance without changing PBS or VM
+      ansible.builtin.debug:
+        msg:
+          - "CORE_MEDIA30_ACTION={{ core_media_action }}"
+          - CORE_MEDIA30_VM=2243
+          - "CORE_MEDIA30_GUEST_IP={{ core_media_ipv4 }}"
+          - "CORE_MEDIA30_PORTAL_LINKS={{ core_media_links | length }} VALID"
+          - "CORE_MEDIA30_WEB_SERVICES={{ core_media_http_checks.results | length }} HTTP_200"
+          - CORE_MEDIA30_SMB=TCP_445_OPEN
+          - CORE_MEDIA30_RCLONE_API=UNAUTHENTICATED_401
+          - "CORE_MEDIA30_PORTAL_REPAIRED={{ core_media_portal_repair is changed }}"
+          - CORE_MEDIA30_E2E=PASS
+)
+          - >-
+            core_media_vm_config.stdout is search('(?m)^agent: enabled=1')
         fail_msg: CORE_MEDIA30_VM2243_IDENTITY_OR_IP_MISMATCH
 
     - name: Require media VM2243 is actually running
