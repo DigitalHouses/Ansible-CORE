@@ -1,0 +1,101 @@
+---
+# Read-only diagnostic for PVE's historical PBS storage. Never remove or rename
+# an existing storage, datastore, VM, snapshot, or backup job.
+- name: Read the complete CORE PVE storage mappings without credentials
+  ansible.builtin.command:
+    argv: [pvesh, get, /storage, --output-format, json]
+  register: core40_storage_config_raw
+  changed_when: false
+
+- name: Read native CORE PVE backup schedules without changing them
+  ansible.builtin.command:
+    argv: [pvesh, get, /cluster/backup, --output-format, json]
+  register: core40_backup_jobs_raw
+  changed_when: false
+
+- name: Read CORE PBS datastore inventory from its own guest
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, proxmox-backup-manager, datastore, list, --output-format, json]
+  register: core40_pbs_datastores_raw
+  changed_when: false
+  when: core40_media_standard | length == 1
+
+- name: Require complete and trustworthy datastore inventory from CORE PBS
+  ansible.builtin.assert:
+    that:
+      - core40_pbs_datastores_raw.rc == 0
+      - (core40_pbs_datastores_raw.stdout | from_json).exitcode | int == 0
+      - not ((core40_pbs_datastores_raw.stdout | from_json)['out-truncated'] | default(false) | bool)
+    fail_msg: CORE40_PBS_DATASTORES_READBACK_FAILED
+  when: core40_media_standard | length == 1
+
+- name: Parse only existing PVE storage, backup jobs, and PBS datastore configuration
+  ansible.builtin.set_fact:
+    core40_pve_pbs_legacy: >-
+      {{ (core40_storage_config_raw.stdout | from_json)
+         | selectattr('storage', 'equalto', 'pbs-serzhan') | list }}
+    core40_pve_pbs_central: >-
+      {{ (core40_storage_config_raw.stdout | from_json)
+         | selectattr('storage', 'equalto', 'pbs-core') | list }}
+    core40_legacy_backup_jobs: >-
+      {{ (core40_backup_jobs_raw.stdout | from_json)
+         | selectattr('storage', 'equalto', 'pbs-serzhan') | list }}
+    core40_pbs_datastores: >-
+      {{ ((core40_pbs_datastores_raw.stdout | from_json)['out-data'] | from_json)
+         if core40_media_standard | length == 1 else [] }}
+
+- name: Identify only configured legacy datastore on central PBS
+  ansible.builtin.set_fact:
+    core40_pbs_legacy: >-
+      {{ core40_pbs_datastores | selectattr('name', 'equalto', 'pbs-serzhan') | list }}
+    core40_pbs_central: >-
+      {{ core40_pbs_datastores | selectattr('name', 'equalto', 'pbs-core') | list }}
+
+- name: Check whether legacy datastore has any actual snapshot manifest
+  ansible.builtin.command:
+    argv:
+      - qm
+      - guest
+      - exec
+      - '2243'
+      - --
+      - find
+      - "{{ core40_pbs_legacy[0].path }}"
+      - -name
+      - .chunks
+      - -prune
+      - -o
+      - -type
+      - f
+      - -name
+      - index.json.blob
+      - -print
+      - -quit
+  register: core40_legacy_snapshots_probe
+  changed_when: false
+  when: core40_pbs_legacy | length == 1
+
+- name: Require complete snapshot presence probe before reporting data usage
+  ansible.builtin.assert:
+    that:
+      - core40_legacy_snapshots_probe.rc == 0
+      - (core40_legacy_snapshots_probe.stdout | from_json).exitcode | int == 0
+      - not ((core40_legacy_snapshots_probe.stdout | from_json)['out-truncated'] | default(false) | bool)
+    fail_msg: CORE40_LEGACY_SNAPSHOT_PROBE_FAILED
+  when: core40_pbs_legacy | length == 1
+
+- name: Report read-only legacy mapping and dependencies before any cleanup decision
+  ansible.builtin.debug:
+    msg:
+      - "CORE40_VM2243_NAME={{ core40_media_standard[0].name | default('UNNAMED') if core40_media_standard | length == 1 else 'ABSENT' }}"
+      - "CORE40_LEGACY_PVE_STORAGE_CONFIGURED={{ core40_pve_pbs_legacy | length == 1 }}"
+      - "CORE40_LEGACY_PVE_STORAGE_TYPE={{ core40_pve_pbs_legacy[0].type | default('N/A') if core40_pve_pbs_legacy | length == 1 else 'N/A' }}"
+      - "CORE40_LEGACY_PVE_STORAGE_SERVER={{ core40_pve_pbs_legacy[0].server | default('N/A') if core40_pve_pbs_legacy | length == 1 else 'N/A' }}"
+      - "CORE40_LEGACY_PVE_STORAGE_DATASTORE={{ core40_pve_pbs_legacy[0].datastore | default('N/A') if core40_pve_pbs_legacy | length == 1 else 'N/A' }}"
+      - "CORE40_LEGACY_PVE_STORAGE_NAMESPACE={{ core40_pve_pbs_legacy[0].namespace | default('ROOT') if core40_pve_pbs_legacy | length == 1 else 'N/A' }}"
+      - "CORE40_LEGACY_PVE_SCHEDULE_REFERENCES={{ core40_legacy_backup_jobs | length }}"
+      - "CORE40_LEGACY_PVE_SCHEDULE_IDS={{ core40_legacy_backup_jobs | map(attribute='id') | join(',') if core40_legacy_backup_jobs | length else 'NONE' }}"
+      - "CORE40_PBS_CORE_DATASTORE={{ 'PRESENT' if core40_pbs_central | length == 1 else 'NOT_CONFIRMED' }}"
+      - "CORE40_PBS_LEGACY_DATASTORE={{ 'PRESENT' if core40_pbs_legacy | length == 1 else 'NOT_CONFIGURED' }}"
+      - "CORE40_PBS_LEGACY_HAS_SNAPSHOTS={{ 'YES' if ((core40_legacy_snapshots_probe.stdout | from_json)['out-data'] | trim | length > 0) else 'NO' if core40_pbs_legacy | length == 1 else 'UNKNOWN' }}"
+      - CORE40_LEGACY_CLEANUP=NOT_PERFORMED
