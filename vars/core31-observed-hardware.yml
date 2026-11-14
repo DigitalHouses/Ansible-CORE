@@ -1,0 +1,9 @@
+---
+# Read-only observed hardware identity on CORE ASRock, 2026-11-14.
+# Protects the imported pool from being confused with another SATA drive.
+core31_hardware:
+  gpu_hostpci: '0000:2f:00.0'
+  sata_hostpci: '0000:2b:00.0'
+  sata_serial: 'PK1331PAGH7VHS'
+  pool_name: 'serzhan-pool'
+  pool_guid: '18293847766285774524'
