@@ -14,6 +14,8 @@
     verify_run: "{{ verify_tasks | selectattr('name','search','Start and wait for native CORE PBS Verify') | first }}"
     worker_history: "{{ verify_tasks | selectattr('name','search','Read the completed PBS worker history') | first }}"
     worker_accept: "{{ verify_tasks | selectattr('name','search','Require this Verify worker finished successfully') | first }}"
+    clock_accept: "{{ verify_tasks | selectattr('name','search','Require trustworthy PBS clock') | first }}"
+    match_worker: "{{ verify_tasks | selectattr('name','search','Find only this job') | first }}"
   tasks:
     - name: Require clear manual 03 action without replacing CORE50 audit or prepare
       ansible.builtin.assert:
@@ -47,3 +49,10 @@
           - "'TASK OK' not in (verify_run.failed_when | to_json)"
           - "'prune' not in (verify_tasks | to_json)"
           - "'gc' not in (verify_tasks | to_json)"
+
+    - name: Require non-truncated, valid Jinja expressions for time and worker identity
+      ansible.builtin.assert:
+        that:
+          - "clock_accept['ansible.builtin.assert'].that[3] | regex_search('is match\\\\(') is not none"
+          - "clock_accept['ansible.builtin.assert'].that[3].endswith(\"match('^[0-9]{10,}$')\")"
+          - "\"'(^|:)core50-serzhan-home$'\" in match_worker['ansible.builtin.set_fact'].core50_verify_task_matches"
