@@ -1,0 +1,21 @@
+---
+# Authoritative CORE addressing and Proxmox ID offsets.
+# Last octet is the guest's address within the CORE PVE /24.
+# VMID = 2000 + octet; CTID = 1000 + octet.
+core_resource_standard:
+  profile: core
+  site_id: dh-core
+  pve_octet: 240
+  ansible_octet: 241
+  ha_octet: 242
+  media_octet: 243
+  postgres_octet: 244
+  vm_offset: 2000
+  ct_offset: 1000
+  media_vm_name: mediaserver-dh-core
+  media_legacy_vm_name: mediaserver-serzhan
+
+core_ansible_ctid: "{{ (core_resource_standard.ct_offset | int) + (core_resource_standard.ansible_octet | int) }}"
+core_ha_vmid: "{{ (core_resource_standard.vm_offset | int) + (core_resource_standard.ha_octet | int) }}"
+core_media_vmid: "{{ (core_resource_standard.vm_offset | int) + (core_resource_standard.media_octet | int) }}"
+core_postgres_ctid: "{{ (core_resource_standard.ct_offset | int) + (core_resource_standard.postgres_octet | int) }}"
