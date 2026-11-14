@@ -44,6 +44,7 @@
   gather_facts: false
   vars_files:
     - ../vars/core-resource-standard.yml
+    - ../vars/core31-observed-hardware.yml
   vars:
     core31_expected_media_ip: >-
       {{ (core31_pve_ip.split('.')[:3] + [core_resource_standard.media_octet | string]) | join('.') }}
