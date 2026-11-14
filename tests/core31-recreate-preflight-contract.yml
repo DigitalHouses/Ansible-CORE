@@ -72,6 +72,7 @@
       ansible.builtin.assert:
         that:
           - "'qmrestore' in (rebuild | to_json)"
+          - "((rebuild | selectattr('name', 'equalto', 'Require confirmed clean shutdown') | first)['ansible.builtin.assert'].that | map('type_debug') | unique | list) == ['str']"
           - "'--purge' in (rebuild | to_json)"
           - "'--destroy-unreferenced-disks' in (rebuild | to_json)"
           - "'core31_boot_archives.files[0].path' in (rebuild | to_json)"
