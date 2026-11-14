@@ -138,20 +138,22 @@
       - --
       - /bin/bash
       - -lc
-      - >-
-        set -e;
-        for p in /etc/proxmox-backup/datastore.cfg
+      - |
+        set -Eeuo pipefail
+        paths=(
+          /etc/proxmox-backup/datastore.cfg
           /etc/proxmox-backup/user.cfg
           /etc/proxmox-backup/token.shadow
           /etc/proxmox-backup/proxy.pem
           /etc/proxmox-backup/proxy.key
           /root/.digitalhouses/core50/serzhan-home-push.json
-          /root/.digitalhouses/core50/serzhan-home-restore.json;
-        do test -s "$p" || exit 10; done;
-        test "$(findmnt -n -T /etc/proxmox-backup -o FSTYPE)" = ext4;
-        test "$(findmnt -n -T /var/lib/plexmediaserver -o FSTYPE)" = ext4;
-        test "$(findmnt -n -T /serzhan-pool/pbs-core -o FSTYPE)" = zfs;
-        test "$(findmnt -n -T /serzhan-pool/pbs-serzhan -o FSTYPE)" = zfs;
+          /root/.digitalhouses/core50/serzhan-home-restore.json
+        )
+        for p in "${paths[@]}"; do test -s "$p" || exit 10; done
+        test "$(findmnt -n -T /etc/proxmox-backup -o FSTYPE)" = ext4
+        test "$(findmnt -n -T /var/lib/plexmediaserver -o FSTYPE)" = ext4
+        test "$(findmnt -n -T /serzhan-pool/pbs-core -o FSTYPE)" = zfs
+        test "$(findmnt -n -T /serzhan-pool/pbs-serzhan -o FSTYPE)" = zfs
         echo CORE31_GUEST_SECRETS_ON_ROOTFS_AND_PBS_DATA_ON_ZFS
   register: core31_guest_state_raw
   changed_when: false
