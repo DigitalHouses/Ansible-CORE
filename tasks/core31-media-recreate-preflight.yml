@@ -57,22 +57,9 @@
 
 - name: Confirm actual preserved ZFS pool identity and health through QGA
   ansible.builtin.command:
-    argv: [qm, guest, exec, "{{ core_media_vmid | string }}", --, zpool, list, -H, -o, name,health,guid]
+    argv: [qm, guest, exec, "{{ core_media_vmid | string }}", --, zpool, list, -H, -o, 'name,health,guid']
   register: core31_zpool_raw
   changed_when: false
-  retries: 3
-  delay: 2
-  until: >-
-    core31_zpool_raw.rc == 0 and
-    (core31_zpool_raw.stdout | default('{}', true) | from_json).get('exitcode', 1) | int == 0
-
-- name: Report safe ZFS QGA status before accepting physical disk identity
-  ansible.builtin.debug:
-    msg:
-      - "CORE31_ZPOOL_PVE_RC={{ core31_zpool_raw.rc }}"
-      - "CORE31_ZPOOL_QGA_EXITCODE={{ (core31_zpool_raw.stdout | from_json).get('exitcode', 'MISSING') }}"
-      - "CORE31_ZPOOL_STDOUT={{ (core31_zpool_raw.stdout | from_json).get('out-data', '') | trim }}"
-      - "CORE31_ZPOOL_STDERR={{ (core31_zpool_raw.stdout | from_json).get('err-data', '') | trim }}"
 
 - name: Require exactly one expected healthy pool
   ansible.builtin.assert:

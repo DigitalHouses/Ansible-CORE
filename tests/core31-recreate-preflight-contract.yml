@@ -11,6 +11,7 @@
     protect: "{{ lookup('ansible.builtin.file', root ~ '/tasks/core31-media-protect.yml') | from_yaml }}"
     hardware: "{{ lookup('ansible.builtin.file', root ~ '/vars/core31-observed-hardware.yml') | from_yaml }}"
     task31: "{{ (catalog.tasks | selectattr('name', 'equalto', '31-CORE Recreate + Import — подготовка') | list)[0] }}"
+    zpool_probe: "{{ (audit | selectattr('name', 'equalto', 'Confirm actual preserved ZFS pool identity and health through QGA') | first) }}"
   tasks:
     - name: Only audit and explicit protection are selectable
       ansible.builtin.assert:
@@ -35,6 +36,8 @@
           - hardware.core31_hardware.pool_guid == '18293847766285774524'
           - hardware.core31_hardware.sata_serial == 'PK1331PAGH7VHS'
           - "'serzhan-pool' in (audit | to_json)"
+          - zpool_probe['ansible.builtin.command'].argv[-1] == 'name,health,guid'
+          - zpool_probe['ansible.builtin.command'].argv | length == 10
           - "'pbs-core' in (audit | to_json)"
           - "'pbs-serzhan' in (audit | to_json)"
           - "'token.shadow' in (audit | to_json)"
