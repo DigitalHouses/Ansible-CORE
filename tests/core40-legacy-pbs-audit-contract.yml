@@ -7,7 +7,7 @@
     project_root: "{{ playbook_dir | dirname }}"
     core40_playbook: "{{ lookup('ansible.builtin.file', project_root ~ '/playbooks/core-pbs.yml') | from_yaml }}"
     audit_tasks: "{{ lookup('ansible.builtin.file', project_root ~ '/tasks/core40-legacy-pbs-audit.yml') | from_yaml }}"
-    command_tasks: "{{ audit_tasks | selectattr('ansible.builtin.command', 'defined') | list }}"
+    command_tasks: "{{ audit_tasks | selectattr('changed_when', 'defined') | list }}"
     audit_include: "{{ (core40_playbook[1].tasks | selectattr('name', 'equalto', 'Audit legacy CORE PVE PBS storage mapping and scheduled dependencies') | first) }}"
   tasks:
     - name: Require audit included only for read-only CORE40 action
