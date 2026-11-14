@@ -1,0 +1,60 @@
+---
+- name: Require CORE fresh OS installation from native HOME-proven blocks
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - ../vars/core-media-deploy.yml
+  vars:
+    root: "{{ playbook_dir | dirname }}"
+    clean: "{{ lookup('ansible.builtin.file', root ~ '/playbooks/core-media-fresh.yml') | from_yaml }}"
+    zfs: "{{ lookup('ansible.builtin.file', root ~ '/tasks/media-zfs-apply.yml') }}"
+    image: "{{ lookup('ansible.builtin.file', root ~ '/tasks/media30-image-prestage.yml') }}"
+    vm: "{{ lookup('ansible.builtin.file', root ~ '/tasks/media-vm-apply.yml') | from_yaml }}"
+    pbs: "{{ lookup('ansible.builtin.file', root ~ '/tasks/core-media-pbs-import.yml') }}"
+    catalog: "{{ lookup('ansible.builtin.file', root ~ '/catalog/tasks.yml') | from_yaml }}"
+    item31: "{{ (catalog.tasks | selectattr('name', 'equalto', '31-CORE Media/PBS — Create/Recreate + Import') | list) | first }}"
+  tasks:
+    - name: Pin CORE addressing, guest IDs, original SATA and ZFS
+      ansible.builtin.assert:
+        that:
+          - core_media_site.id == 'dh-core'
+          - core_media_spec.name == 'mediaserver-dh-core'
+          - core_media_spec.vmid == 2243
+          - core_media_spec.network.ipv4 == '192.168.11.243/24'
+          - core_media_spec.storage.pool_name == 'serzhan-pool'
+          - core_media_spec.storage.import_pool_guid == '18293847766285774524'
+          - core_media_spec.pci.sata_controller == '0000:2b:00.0'
+          - core_media_spec.pci.gpu == '0000:2f:00.0'
+          - item31.playbook == 'playbooks/core-media-fresh.yml'
+          - item31.survey_vars[0].default_value == 'audit'
+          - item31.survey_vars[0]['values'] | map(attribute='value') | list == ['audit','apply']
+
+    - name: Require fresh Debian cloud image and native VM creation, never OS archive restore
+      ansible.builtin.assert:
+        that:
+          - "'debian-13-generic-amd64.qcow2' in image"
+          - "'SHA512SUMS' in image"
+          - "'qm' in (vm | to_json) and 'create' in (vm | to_json)"
+          - "'importdisk' in (vm | to_json)"
+          - "'media30-image-prestage.yml' in (clean | to_json)"
+          - "'media-vm-apply.yml' in (clean | to_json)"
+          - "'core-media-pbs-import.yml' in (clean | to_json)"
+          - "'core-media-tailscale-import.yml' in (clean | to_json)"
+          - "'media-native-apps.yml' in (clean | to_json)"
+          - "'media30-pbs-apply.yml' in (clean | to_json)"
+          - "'qmrestore' not in (clean | to_json)"
+          - "'vzdump-qemu' not in (clean | to_json)"
+
+    - name: Require Import-only ZFS implementation without formatting operations
+      ansible.builtin.assert:
+        that:
+          - "'CORE_DISK_ERASE_NOT_SUPPORTED' in zfs"
+          - "'zpool' in zfs"
+          - "'import' in zfs"
+          - "'wipefs' not in zfs"
+          - "'sgdisk' not in zfs"
+          - "'zpool, destroy' not in zfs"
+          - "'etc/proxmox-backup' in pbs"
+          - "'pbs-core' in pbs"
+          - "'pbs-serzhan' in pbs"

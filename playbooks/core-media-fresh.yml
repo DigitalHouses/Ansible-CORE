@@ -1,0 +1,435 @@
+---
+# CORE-only clean Debian 13 Media/PBS provisioning. HOME code has been copied
+# into this repository under tasks/media*.yml; no HOME runtime dependency.
+- name: "31 | Pin CORE profile and clean-install declaration"
+  hosts: runner
+  connection: local
+  gather_facts: false
+  vars_files:
+    - /etc/digitalhouses/pve.yml
+    - ../vars/core-resource-standard.yml
+    - ../vars/core-media-deploy.yml
+  vars:
+    media_mode: "{{ DH_CORE31_ACTION | default('audit', true) }}"
+    media_site: "{{ core_media_site }}"
+    media_spec: "{{ core_media_spec }}"
+    media_disk_action: import
+    media_root_password: "{{ DH_CORE_MEDIA_ROOT_PASSWORD | default(lookup('ansible.builtin.env', 'DH_CORE_MEDIA_ROOT_PASSWORD'), true) }}"
+  tasks:
+    - name: Require only clean install or audit, pinned CORE identity and non-destructive ZFS import
+      ansible.builtin.assert:
+        that:
+          - media_mode in ['audit','apply']
+          - media_disk_action == 'import'
+          - media_site.id == 'dh-core'
+          - pve.ipv4 == '192.168.11.240'
+          - media_spec.vmid | int == 2243
+          - media_spec.network.ipv4 == '192.168.11.243/24'
+          - media_spec.name == 'mediaserver-dh-core'
+          - media_spec.storage.pool_name == 'serzhan-pool'
+          - media_spec.storage.import_pool_guid == '18293847766285774524'
+        fail_msg: CORE31_FRESH_PROFILE_OR_IMPORT_IDENTITY_INVALID
+
+    - name: Require existing CORE bootstrap identity and guest ID convention
+      ansible.builtin.include_tasks: ../tasks/core-resource-standard-assert.yml
+
+    - name: Register only existing trusted CORE PVE
+      ansible.builtin.add_host:
+        name: media_pve
+        groups: media80_pve
+        ansible_host: "{{ pve.ipv4 }}"
+        ansible_user: root
+        ansible_connection: ssh
+        ansible_python_interpreter: /usr/bin/python3
+        ansible_ssh_private_key_file: /var/lib/semaphore/.ssh/id_ed25519
+        ansible_ssh_common_args: >-
+          -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes
+          -o UserKnownHostsFile=/var/lib/semaphore/.ssh/known_hosts
+        media_mode: "{{ media_mode }}"
+        media_site: "{{ media_site }}"
+        media_spec: "{{ media_spec }}"
+        media_site_blob: CORE_LOCAL_MANIFEST
+        media_disk_action: import
+        media_vm_action: create
+        media_root_password: "{{ media_root_password }}"
+        media30_vm_cpu_percent: 150
+        media30_transcode_cpu_percent: 100
+      changed_when: false
+      no_log: true
+
+- name: "30 | Observe actual media VM and selected PCI devices"
+  hosts: media80_pve
+  gather_facts: false
+  become: false
+  tasks:
+    - name: Require approved CORE GPU and SATA passthrough controllers
+      ansible.builtin.stat:
+        path: "/sys/bus/pci/devices/{{ item }}"
+      loop: ["{{ media_spec.pci.gpu }}", "{{ media_spec.pci.sata_controller }}"]
+      register: core_media_pci_devices
+
+    - name: Refuse to provision a CORE VM with missing passthrough hardware
+      ansible.builtin.assert:
+        that:
+          - core_media_pci_devices.results | selectattr('stat.exists', 'equalto', false) | list | length == 0
+        fail_msg: CORE_MEDIA_PCI_HARDWARE_NOT_FOUND
+
+    - name: Check requested VM definition on Proxmox
+      ansible.builtin.stat:
+        path: "/etc/pve/qemu-server/{{ media_spec.vmid }}.conf"
+        follow: false
+      register: media_vm_conf
+
+    - name: Select create or recreate from actual CORE VM2243 presence
+      ansible.builtin.set_fact:
+        media_vm_action: "{{ 'recreate' if media_vm_conf.stat.exists else 'create' }}"
+
+    - name: Read existing target VM configuration without changes
+      ansible.builtin.command:
+        argv: [qm, config, "{{ media_spec.vmid }}"]
+      register: media_vm_config
+      changed_when: false
+      no_log: true
+      when: media_vm_conf.stat.exists
+
+    - name: Parse the observed VM configuration
+      ansible.builtin.set_fact:
+        media_current_vm: >-
+          {{ dict((media_vm_config.stdout_lines | default([]))
+             | select('search', ': ') | map('split', ': ', 1)) }}
+      when: media_vm_conf.stat.exists
+
+    - name: Never silently readdress an existing VM in keep mode
+      ansible.builtin.assert:
+        that:
+          - >-
+            media_current_vm.ipconfig0 | default('') is search(
+              '(^|,)ip=' ~ (media_spec.network.ipv4 | regex_escape) ~ '(,|$)')
+        fail_msg: >-
+          MEDIA30_KEEP_IP_CHANGE_REFUSED: keep cannot readdress a running
+          guest; use the existing IP or select a separate VM create/recreate.
+      when:
+        - media_mode == 'apply'
+        - media_vm_action == 'keep'
+        - media_vm_conf.stat.exists
+
+    - name: Verify existing VM belongs to the selected site
+      ansible.builtin.assert:
+        that:
+          - media_current_vm.name | default('') == media_spec.name
+        fail_msg: MEDIA80_VM_NAME_MISMATCH
+      when: media_vm_conf.stat.exists
+
+    - name: Observe power state only for the existing target VM
+      ansible.builtin.command:
+        argv: [qm, status, "{{ media_spec.vmid }}"]
+      register: media_vm_power
+      changed_when: false
+      when: media_vm_conf.stat.exists
+
+    - name: Verify existing CORE ZFS and PBS survive fresh Debian VM2243 recreate+import
+      ansible.builtin.include_tasks: ../tasks/media30-recreate-e2e-preflight.yml
+      when:
+        - media_vm_action == 'recreate'
+        - media_disk_action == 'import'
+        - media_vm_conf.stat.exists
+
+    - name: Summarize read-only target inspection
+      ansible.builtin.debug:
+        msg:
+          result: MEDIA80_AUDIT_ONLY
+          site: "{{ media_site.id }}"
+          pve: "{{ ansible_host }}"
+          vmid: "{{ media_spec.vmid }}"
+          vm_name: "{{ media_spec.name }}"
+          vm_exists: "{{ media_vm_conf.stat.exists }}"
+          vm_state: "{{ media_vm_power.stdout | default('absent') }}"
+          vm_action_requested: "{{ media_vm_action }}"
+          disk_action_requested: "{{ media_disk_action }}"
+          gpu_pci: "{{ media_spec.pci.gpu }}"
+          sata_pci: "{{ media_spec.pci.sata_controller }}"
+          intended_pool: "{{ media_spec.storage.pool_name }}"
+          intended_guest_ipv4: "{{ media_spec.network.ipv4 }}"
+          manifest_blob: "{{ media_site_blob }}"
+          not_yet_verified: "guest ZFS, apps, SMB, media login, GPU transcoding"
+          changes_applied: false
+      when: media_mode == 'audit'
+
+- name: "30 | Stage native VM lifecycle (apply only)"
+  hosts: media80_pve
+  gather_facts: false
+  become: false
+  tasks:
+    - name: Commission managed Debian media VM
+      when: media_mode == 'apply'
+      block:
+        - name: Read existing Runner SSH public key for cloud-init
+          ansible.builtin.command:
+            argv: [ssh-keygen, -y, -f, /var/lib/semaphore/.ssh/id_ed25519]
+          delegate_to: runner
+          register: media_guest_pubkey_raw
+          changed_when: false
+
+        - name: Keep Runner public key for guest cloud-init
+          ansible.builtin.set_fact:
+            media_guest_pubkey: "{{ media_guest_pubkey_raw.stdout }}"
+
+        - name: Prestage checksum-verified Debian image before create or recreate
+          ansible.builtin.include_tasks: ../tasks/media30-image-prestage.yml
+          when: media_vm_action in ['create', 'recreate']
+
+        - name: Converge managed VM using native Proxmox commands
+          ansible.builtin.include_tasks: ../tasks/media-vm-apply.yml
+          vars:
+            media_vm: "{{ media_spec }}"
+
+        - name: Inspect previously QGA-verified media SSH identity on Runner for keep
+          ansible.builtin.stat:
+            path: /var/lib/semaphore/.ssh/media80_known_hosts
+            follow: false
+          delegate_to: runner
+          register: media_prior_known_host
+          when: media_vm_action == 'keep'
+
+        - name: Select previously pinned identity only for existing unchanged VM
+          ansible.builtin.set_fact:
+            media_reuse_pinned_ssh: >-
+              {{ media_vm_action == 'keep' and
+                 (media_prior_known_host.stat.exists | default(false)) }}
+
+        - name: Validate stored trust anchor is private, regular, and owned by Semaphore
+          ansible.builtin.assert:
+            that:
+              - media_prior_known_host.stat.isreg | bool
+              - media_prior_known_host.stat.mode == '0600'
+              - media_prior_known_host.stat.pw_name == 'semaphore'
+              - media_prior_known_host.stat.size | int < 300
+            fail_msg: MEDIA30_PRIOR_SSH_TRUST_ANCHOR_INVALID
+          when: media_reuse_pinned_ssh | bool
+
+        - name: Read previously QGA-pinned host key for unchanged VM
+          ansible.builtin.slurp:
+            src: /var/lib/semaphore/.ssh/media80_known_hosts
+          delegate_to: runner
+          register: media_prior_key_contents
+          when: media_reuse_pinned_ssh | bool
+
+        - name: Reuse previously authenticated ED25519 identity for keep
+          ansible.builtin.set_fact:
+            media_guest_hostkey: >-
+              {{ (media_prior_key_contents.content | b64decode | trim)
+                 .split(' ', 1)[1] }}
+          when: media_reuse_pinned_ssh | bool
+
+        - name: Verify stored guest key is a single exact-IP ED25519 pin
+          ansible.builtin.assert:
+            that:
+              - media_guest_hostkey is match('^ssh-ed25519 [A-Za-z0-9+/]{60,}={0,2}$')
+              - >-
+                (media_prior_key_contents.content | b64decode | trim) ==
+                (media_spec.network.ipv4.split('/')[0] ~ ' ' ~ media_guest_hostkey)
+            fail_msg: MEDIA30_PRIOR_SSH_PIN_MISMATCH
+          when: media_reuse_pinned_ssh | bool
+
+        - name: Read guest ED25519 host key through authenticated QGA
+          ansible.builtin.command:
+            argv:
+              - qm
+              - guest
+              - exec
+              - "{{ media_spec.vmid }}"
+              - --
+              - /bin/cat
+              - /etc/ssh/ssh_host_ed25519_key.pub
+          register: media_guest_qga_hostkey
+          changed_when: false
+          when: not media_reuse_pinned_ssh | bool
+          retries: 60
+          delay: 5
+          until: >-
+            media_guest_qga_hostkey.rc == 0 and
+            ((media_guest_qga_hostkey.stdout | from_json).exited | int) == 1 and
+            ((media_guest_qga_hostkey.stdout | from_json).exitcode | int) == 0
+
+        - name: Parse trusted guest SSH key
+          ansible.builtin.set_fact:
+            media_guest_hostkey: >-
+              {{ ((media_guest_qga_hostkey.stdout | from_json)['out-data'] | trim)
+                 .split()[:2] | join(' ') }}
+          when: not media_reuse_pinned_ssh | bool
+
+        - name: Require a valid non-truncated guest host key
+          ansible.builtin.assert:
+            that:
+              - media_guest_hostkey is match('^ssh-ed25519 [A-Za-z0-9+/]{60,}={0,2}$')
+              - not ((media_guest_qga_hostkey.stdout | from_json)['out-truncated'] | default(false) | bool)
+            fail_msg: MEDIA80_QGA_GUEST_SSH_HOSTKEY_UNTRUSTED
+          when: not media_reuse_pinned_ssh | bool
+
+- name: "30 | Pin the exact guest SSH identity (apply only)"
+  hosts: runner
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Register trusted guest after independent LAN SSH identity verification
+      when: hostvars['media_pve'].media_mode == 'apply'
+      block:
+        - name: Read guest SSH advertised key from the media IP
+          ansible.builtin.command:
+            argv:
+              - ssh-keyscan
+              - -T
+              - '5'
+              - -t
+              - ed25519
+              - "{{ hostvars['media_pve'].media_spec.network.ipv4.split('/')[0] }}"
+          register: media_scan
+          changed_when: false
+          retries: 30
+          delay: 5
+          until: >-
+            media_scan.rc == 0 and
+            (hostvars['media_pve'].media_spec.network.ipv4.split('/')[0]
+             ~ ' ' ~ hostvars['media_pve'].media_guest_hostkey) in media_scan.stdout_lines
+
+        - name: Pin authenticated QGA-to-SSH host identity for the media guest
+          ansible.builtin.copy:
+            dest: /var/lib/semaphore/.ssh/media80_known_hosts
+            content: >-
+              {{ hostvars['media_pve'].media_spec.network.ipv4.split('/')[0] }}
+              {{ hostvars['media_pve'].media_guest_hostkey }}
+
+            owner: semaphore
+            group: semaphore
+            mode: '0600'
+          become: true
+
+        - name: Register Debian media guest with pinned identity
+          ansible.builtin.add_host:
+            name: media_guest
+            groups: media80_guest
+            ansible_host: "{{ hostvars['media_pve'].media_spec.network.ipv4.split('/')[0] }}"
+            ansible_connection: ssh
+            ansible_user: debian
+            ansible_become: true
+            ansible_python_interpreter: /usr/bin/python3
+            ansible_ssh_private_key_file: /var/lib/semaphore/.ssh/id_ed25519
+            ansible_ssh_common_args: >-
+              -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes
+              -o UserKnownHostsFile=/var/lib/semaphore/.ssh/media80_known_hosts
+            media_spec: "{{ hostvars['media_pve'].media_spec }}"
+            media_site: "{{ hostvars['media_pve'].media_site }}"
+            media_vm_action: "{{ hostvars['media_pve'].media_vm_action }}"
+            media_disk_action: "{{ hostvars['media_pve'].media_disk_action }}"
+            media30_vm_cpu_percent: "{{ hostvars['media_pve'].media30_vm_cpu_percent }}"
+            media30_transcode_cpu_percent: "{{ hostvars['media_pve'].media30_transcode_cpu_percent }}"
+            media_root_password: "{{ hostvars['media_pve'].media_root_password }}"
+          changed_when: false
+          no_log: true
+
+- name: "30 | Prepare native guest and ZFS (apply only)"
+  hosts: media80_guest
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Wait for Debian media guest to finish first boot
+      ansible.builtin.wait_for_connection:
+        delay: 5
+        sleep: 6
+        connect_timeout: 8
+        timeout: 540
+      changed_when: false
+
+    - name: Install native Debian, ZFS and Intel GPU prerequisites
+      ansible.builtin.include_tasks: ../tasks/media-guest-prereqs.yml
+
+    - name: Apply optional root password stored in task 05 without touching other users
+      ansible.builtin.include_tasks: ../tasks/media30-root-password.yml
+
+    - name: Recover unresponsive QGA in kept guest through pinned SSH access
+      ansible.builtin.systemd_service:
+        name: qemu-guest-agent.service
+        state: restarted
+      when:
+        - media_vm_action == 'keep'
+        - hostvars['media_pve'].media_keep_qga_probe.rc | default(0) != 0
+
+    - name: Enable native Debian serial and virtual VGA login consoles
+      ansible.builtin.include_tasks: ../tasks/media30-console-apply.yml
+
+    - name: Apply approved emergency swap protection on the guest root filesystem
+      ansible.builtin.include_tasks: ../tasks/media-swap-apply.yml
+
+    - name: Reconcile controller-scoped media ZFS pool and layout
+      ansible.builtin.include_tasks: ../tasks/media-zfs-apply.yml
+      vars:
+        media_vm: "{{ media_spec }}"
+        media_raw_disk_action: "{{ media_disk_action }}"
+
+    - name: Require exactly the pre-existing CORE physical ZFS pool GUID after import
+      ansible.builtin.command:
+        argv: [zpool, get, -H, -o, value, guid, "{{ media_spec.storage.pool_name }}"]
+      register: core_media_guid_after
+      changed_when: false
+      failed_when: core_media_guid_after.stdout | trim != media_spec.storage.import_pool_guid
+
+    - name: Install fresh PBS server packages from official repository
+      ansible.builtin.include_tasks: ../tasks/media30-pbs-apply.yml
+
+    - name: Re-attach existing CORE PBS datastore registrations and authentication from preserved ZFS
+      ansible.builtin.include_tasks: ../tasks/core-media-pbs-import.yml
+
+    - name: Install CORE Tailscale and restore its original identity without DNS or route takeover
+      ansible.builtin.include_tasks: ../tasks/core-media-tailscale-import.yml
+
+    - name: Reconcile authenticated SMB shares and accounts
+      ansible.builtin.include_tasks: ../tasks/media-smb-apply.yml
+
+    - name: Commission native media applications with protected firstboot
+      ansible.builtin.include_tasks: ../tasks/media-native-apps.yml
+
+    - name: Install official rclone and enable authenticated LAN Web GUI
+      ansible.builtin.include_tasks: ../tasks/media30-rclone-apply.yml
+
+
+    - name: Enforce one shared CPU budget for Plex and Jellyfin
+      ansible.builtin.include_tasks: ../tasks/media30-cpu-shared-apply.yml
+
+    - name: Publish local media homepage
+      ansible.builtin.include_tasks: ../tasks/media-portal-apply.yml
+
+    - name: Publish protected HTTPS owner password self-service
+      ansible.builtin.include_tasks: ../tasks/media30-account-portal-apply.yml
+
+    - name: Install Webmin user and group administration for the media guest
+      ansible.builtin.include_tasks: ../tasks/media30-webmin-apply.yml
+
+    - name: Run built-in task 81 read-only guest acceptance
+      ansible.builtin.include_tasks: ../tasks/media-accept-guest.yml
+
+    - name: Accept Windows discovery and both guest consoles
+      ansible.builtin.include_tasks: ../tasks/media30-discovery-console-accept.yml
+
+  handlers:
+    - name: Rebuild media initramfs
+      ansible.builtin.command:
+        argv: [update-initramfs, -u]
+      changed_when: true
+
+    - name: Restart Jellyfin after onboarding
+      ansible.builtin.systemd_service:
+        name: jellyfin.service
+        daemon_reload: true
+        state: restarted
+
+    - name: Apply vetted Sambee LAN binding
+      ansible.builtin.command:
+        argv: [docker, compose, -f, /opt/dh-sambee/docker-compose.yml, up, -d]
+      changed_when: true
+
+- name: "30 | Verify final PVE acceptance after guest QGA recovery"
+  hosts: media80_pve
+  gather_facts: false
+  tasks:
+    - name: Run read-only PVE acceptance after guest setup
+      ansible.builtin.include_tasks: ../tasks/media-accept-pve.yml

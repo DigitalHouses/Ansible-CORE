@@ -1,0 +1,64 @@
+---
+# Native CORE guest package install. Preserve existing tailnet identity from
+# imported physical ZFS, without changing DNS or default routes.
+- name: Fetch official Tailscale Trixie apt signing key
+  ansible.builtin.get_url:
+    url: https://pkgs.tailscale.com/stable/debian/trixie.noarmor.gpg
+    dest: /usr/share/keyrings/tailscale-archive-keyring.gpg
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Register official Tailscale Trixie source
+  ansible.builtin.get_url:
+    url: https://pkgs.tailscale.com/stable/debian/trixie.tailscale-keyring.list
+    dest: /etc/apt/sources.list.d/tailscale.list
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Install Tailscale fresh from official repository
+  ansible.builtin.apt:
+    name: tailscale
+    state: present
+    update_cache: true
+
+- name: Stop new tailscaled daemon before restoring CORE machine identity
+  ansible.builtin.systemd_service:
+    name: tailscaled.service
+    state: stopped
+
+- name: Restore only original tailnet machine identity from preserved ZFS archive
+  ansible.builtin.command:
+    argv:
+      - tar
+      - -xzf
+      - "{{ core_media_pbs_archive.files[0].path }}"
+      - -C
+      - /
+      - var/lib/tailscale
+  changed_when: true
+  no_log: true
+
+- name: Start Tailscale with the existing CORE machine identity
+  ansible.builtin.systemd_service:
+    name: tailscaled.service
+    enabled: true
+    state: started
+
+- name: Keep all LAN default routes and DNS outside the tailnet
+  ansible.builtin.command:
+    argv: [tailscale, set, --accept-dns=false, --accept-routes=false]
+  changed_when: false
+
+- name: Verify recovered CORE tailnet is connected without re-authentication
+  ansible.builtin.command:
+    argv: [tailscale, status, --json]
+  register: core_media_tailscale_state
+  changed_when: false
+
+- name: Require already-authorized CORE tailnet identity
+  ansible.builtin.assert:
+    that:
+      - (core_media_tailscale_state.stdout | from_json).BackendState == 'Running'
+    fail_msg: CORE_MEDIA_TAILSCALE_IDENTITY_DID_NOT_RECONNECT

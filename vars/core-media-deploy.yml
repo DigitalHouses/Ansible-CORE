@@ -1,0 +1,84 @@
+# CORE site config. Reuses vetted HOME native media tasks; no HOME runtime dependency.
+core_media_site:
+  id: dh-core
+  owner_slug: serzhan
+core_media_spec:
+  name: mediaserver-dh-core
+  vmid: 2243
+  network:
+    bridge: vmbr0
+    ipv4: 192.168.11.243/24
+    gateway: 192.168.11.1
+    static_ipv4_verified: true
+  resources:
+    cores: 2
+    memory_mb: 4096
+    disk_gb: 64
+    cpu_units: 50
+    cpu_limit: 1.5
+    transcode_cpu_limit: 1.0
+    zfs_arc_max_mb: 1024
+  pci:
+    gpu: 0000:2f:00.0
+    sata_controller: 0000:2b:00.0
+  lifecycle:
+    onboot: true
+    protection: true
+    display: std
+  storage:
+    pool_name: serzhan-pool
+    import_pool_guid: '18293847766285774524'
+    mode: rw
+    media_dataset: serzhan-pool/media
+    layout:
+      datasets:
+      - backups
+      - digitalhouses
+      - doc
+      - downloads
+      - media
+      - pbs-core
+      - pbs-serzhan
+      - timemachine
+      directories:
+      - backups
+      - digitalhouses
+      - digitalhouses/credentials
+      - doc
+      - downloads
+      - media
+      - media/downloads
+      - media/movies
+      - media/tv
+      - media/music
+      - timemachine
+  downloads:
+    mode: shared-zfs
+    path: /serzhan-pool/media/downloads
+  discovery:
+    workgroup: WORKGROUP
+    netbios_name: server-dh-core
+    friendly_name: DigitalHouses CORE
+  file_access:
+    accounts:
+    - name: serzhan
+      role: owner
+    - name: serzhan_admin
+      role: administrator
+  applications:
+    jellyfin: true
+    radarr: true
+    sonarr: true
+    lidarr: false
+    prowlarr: true
+    qbittorrent: true
+    filestash: true
+    sambee: true
+  portal:
+    show_admin_links: false
+    admin_links: []
+  prowlarr_public_indexers: []
+  plex_agent:
+    mqtt:
+      host: 192.168.11.242
+      port: 1883
