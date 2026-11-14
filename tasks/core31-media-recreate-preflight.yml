@@ -1,0 +1,169 @@
+---
+# CORE №31: read-only qualification for rebuilding Media/PBS VM2243.
+# This never modifies VM hardware, ZFS, snapshots or PBS configuration.
+- name: Read existing CORE Media/PBS VM configuration
+  ansible.builtin.command:
+    argv: [qm, config, "{{ core_media_vmid | string }}"]
+  register: core31_vm_config
+  changed_when: false
+
+- name: Verify exact existing protected guest, disk and passthrough definitions
+  ansible.builtin.assert:
+    that:
+      - core31_vm_config.rc == 0
+      - >-
+        core31_vm_config.stdout is search('(?m)^name: (mediaserver-serzhan|mediaserver-dh-core)$')
+      - >-
+        core31_vm_config.stdout is search('(?m)^ipconfig0: ip=' ~ (core31_expected_media_ip | regex_escape) ~ '/24,gw=')
+      - core31_vm_config.stdout is search('(?m)^scsi0: local-lvm:vm-2243-disk-0,')
+      - core31_vm_config.stdout is search('(?m)^hostpci0: ')
+      - core31_vm_config.stdout is search('(?m)^hostpci1: ')
+      - core31_vm_config.stdout is search('(?m)^protection: 1$')
+      - core31_vm_config.stdout is search('(?m)^agent: enabled=1$')
+    fail_msg: CORE31_EXISTING_GUEST_HARDWARE_OR_IDENTITY_MISMATCH
+
+- name: Require the existing CORE PBS VM is still online
+  ansible.builtin.command:
+    argv: [qm, status, "{{ core_media_vmid | string }}"]
+  register: core31_vm_status
+  changed_when: false
+  failed_when: core31_vm_status.stdout | trim != 'status: running'
+
+- name: Read native PVE backup jobs and the VM self-backup exclusion
+  ansible.builtin.command:
+    argv: [pvesh, get, /cluster/backup, --output-format, json]
+  register: core31_backup_jobs_raw
+  changed_when: false
+
+- name: Detect the legacy CORE PVE backup job without changing its destination
+  ansible.builtin.set_fact:
+    core31_existing_local_jobs: >-
+      {{ (core31_backup_jobs_raw.stdout | from_json)
+         | selectattr('id', 'equalto', 'dh-local-pbs-serzhan') | list }}
+
+- name: Refuse to touch a different local backup arrangement
+  ansible.builtin.assert:
+    that:
+      - core31_existing_local_jobs | length == 1
+      - core31_existing_local_jobs[0].storage == 'pbs-serzhan'
+      - "'2243' in core31_existing_local_jobs[0].exclude | default('')"
+    fail_msg: CORE31_LEGACY_BACKUP_SCHEDULE_OR_SELF_EXCLUSION_CHANGED
+
+- name: Confirm actual preserved ZFS pool identity and health through QGA
+  ansible.builtin.command:
+    argv: [qm, guest, exec, "{{ core_media_vmid | string }}", --, zpool, list, -H, -o, name,health,guid]
+  register: core31_zpool_raw
+  changed_when: false
+
+- name: Require exactly one expected healthy pool
+  ansible.builtin.assert:
+    that:
+      - core31_zpool_raw.rc == 0
+      - (core31_zpool_raw.stdout | from_json).exitcode | int == 0
+      - not ((core31_zpool_raw.stdout | from_json)['out-truncated'] | default(false) | bool)
+      - >-
+        ((core31_zpool_raw.stdout | from_json)['out-data'] | trim)
+        is match('^serzhan-pool\\s+ONLINE\\s+[0-9]+$')
+    fail_msg: CORE31_ZFS_POOL_NOT_HEALTHY_OR_NOT_UNIQUE
+
+- name: Read PBS datastore names and paths without tokens
+  ansible.builtin.command:
+    argv: [qm, guest, exec, "{{ core_media_vmid | string }}", --, proxmox-backup-manager, datastore, list, --output-format, json]
+  register: core31_pbs_stores_raw
+  changed_when: false
+
+- name: Require trustworthy PBS datastore configuration from guest
+  ansible.builtin.assert:
+    that:
+      - core31_pbs_stores_raw.rc == 0
+      - (core31_pbs_stores_raw.stdout | from_json).exitcode | int == 0
+      - not ((core31_pbs_stores_raw.stdout | from_json)['out-truncated'] | default(false) | bool)
+    fail_msg: CORE31_PBS_STORE_INVENTORY_FAILED
+
+- name: Parse PBS datastore inventory
+  ansible.builtin.set_fact:
+    core31_pbs_stores: "{{ (core31_pbs_stores_raw.stdout | from_json)['out-data'] | from_json }}"
+
+- name: Refuse to separate PBS from either preserved datastore
+  ansible.builtin.assert:
+    that:
+      - >-
+        (core31_pbs_stores | selectattr('name', 'equalto', 'pbs-core')
+         | map(attribute='path') | list) == ['/serzhan-pool/pbs-core']
+      - >-
+        (core31_pbs_stores | selectattr('name', 'equalto', 'pbs-serzhan')
+         | map(attribute='path') | list) == ['/serzhan-pool/pbs-serzhan']
+    fail_msg: CORE31_PBS_DATASTORE_IDENTITY_DRIFT
+
+- name: Check root-disk credentials and application state really live on ext4
+  ansible.builtin.command:
+    argv:
+      - qm
+      - guest
+      - exec
+      - "{{ core_media_vmid | string }}"
+      - --
+      - /bin/bash
+      - -lc
+      - >-
+        set -e;
+        for p in /etc/proxmox-backup/datastore.cfg
+          /etc/proxmox-backup/user.cfg
+          /etc/proxmox-backup/token.shadow
+          /etc/proxmox-backup/proxy.pem
+          /etc/proxmox-backup/proxy.key
+          /root/.digitalhouses/core50/serzhan-home-push.json
+          /root/.digitalhouses/core50/serzhan-home-restore.json;
+        do test -s "$p" || exit 10; done;
+        test "$(findmnt -n -T /etc/proxmox-backup -o FSTYPE)" = ext4;
+        test "$(findmnt -n -T /var/lib/plexmediaserver -o FSTYPE)" = ext4;
+        test "$(findmnt -n -T /serzhan-pool/pbs-core -o FSTYPE)" = zfs;
+        test "$(findmnt -n -T /serzhan-pool/pbs-serzhan -o FSTYPE)" = zfs;
+        echo CORE31_GUEST_SECRETS_ON_ROOTFS_AND_PBS_DATA_ON_ZFS
+  register: core31_guest_state_raw
+  changed_when: false
+  no_log: true
+
+- name: Require guest state and critical tokens present before any backup preparation
+  ansible.builtin.assert:
+    that:
+      - core31_guest_state_raw.rc == 0
+      - (core31_guest_state_raw.stdout | from_json).exitcode | int == 0
+    fail_msg: CORE31_ROOTFS_STATE_OR_PBS_ZFS_SEPARATION_UNSAFE
+
+- name: Read free space available for independent VM boot disk archive
+  ansible.builtin.command:
+    argv: [df, -B1, --output=avail, /var/lib/vz/dump]
+  register: core31_pve_archive_space
+  changed_when: false
+
+- name: Require enough independent NVMe space for full 64GiB boot disk archive
+  ansible.builtin.assert:
+    that:
+      - (core31_pve_archive_space.stdout_lines | last | trim | int) > 73014444032
+    fail_msg: CORE31_INSUFFICIENT_LOCAL_VZDUMP_SPACE
+
+- name: Inspect previously saved VM2243 native backup archives
+  ansible.builtin.find:
+    paths: /var/lib/vz/dump
+    patterns: 'vzdump-qemu-2243-*.vma.zst'
+    file_type: file
+    recurse: false
+  register: core31_boot_archives
+  changed_when: false
+
+- name: Report exact CORE Recreate readiness without changing any guest
+  ansible.builtin.debug:
+    msg:
+      - CORE31_MODE=AUDIT
+      - "CORE31_VM={{ core_media_vmid }}"
+      - "CORE31_VM_IP={{ core31_expected_media_ip }}"
+      - CORE31_EXPECTED_CANONICAL_NAME=mediaserver-dh-core
+      - CORE31_PCI_PASSTHROUGH=GPU_AND_SATA_PRESENT
+      - CORE31_ZFS_POOL=serzhan-pool/ONLINE
+      - CORE31_PBS_DATASTORES=pbs-core,pbs-serzhan
+      - CORE31_ROOTFS_PBS_CREDENTIALS=NEED_PRESERVATION
+      - "CORE31_EXISTING_NVME_BOOT_BACKUPS={{ core31_boot_archives.matched }}"
+      - "CORE31_LOCAL_BACKUP_JOB_EXCLUDES_VM2243={{ '2243' in (core31_existing_local_jobs[0].exclude | default('')) }}"
+      - CORE31_RECREATE=NOT_IMPLEMENTED_DO_NOT_DESTROY_VM
+      - CORE31_NEXT=PROTECT_SYSTEM_DISK_AND_CREDENTIALS_THEN_IMPLEMENT_FRESH_PROVISIONING
