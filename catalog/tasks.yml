@@ -39,6 +39,7 @@ tasks:
         values:
           - {name: "01 — Аудит VM2243 / ZFS (без изменений)", value: audit}
           - {name: "02 — Create/Recreate VM2243 + чистый Debian 13 + ZFS Import (без erase)", value: apply}
+          - {name: "03 — Продолжить установку существующей VM2243 (без Recreate)", value: resume}
   - name: 40-CORE Infrastructure
     playbook: playbooks/core-pbs.yml
     description: "Audit CORE PVE/PBS infrastructure or prepare pbs-core; no backup synchronization"
