@@ -15,7 +15,7 @@ tasks:
       - {name: DH_INPUT_TAILSCALE_AUTH_KEY, title: "Tailscale — auth key для CORE PVE/PBS (пусто — сохранить прежний)", type: secret, target: env, required: false, values: []}
   - name: "30-CORE Media E2E"
     playbook: playbooks/core-media-e2e.yml
-    description: "IP берётся из VM2243 ipconfig0; проверить портал, nginx, HTTPS и NoCloud network cache; исправление без перезапуска VM или сети"
+    description: "CORE standard .243/VM2243: проверить IP, имя VM, портал, nginx, HTTPS и NoCloud; никаких VM recreate или ZFS операций"
     survey_vars:
       - name: DH_CORE_MEDIA_ACTION
         title: "Что проверить или исправить в CORE Media Server?"
