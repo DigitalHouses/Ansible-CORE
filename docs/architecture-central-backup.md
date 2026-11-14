@@ -154,3 +154,26 @@ Cloudflare. CORE `pbs-serzhan` и локальные backup jobs HOME должн
   remote-ns, remove-vanished;
 - https://pbs.proxmox.com/docs/command-syntax.html — scoped
   Prune/Verify и datastore GC.
+
+## 9. CORE №40: проверенная legacy-регистрация PBS (14.11.2026)
+
+Read-only аудит CORE Semaphore №40, **Job #99**, завершился
+`success changed=0 failed=0`. Код проверки — Ansible-CORE PR #8.
+
+| Объект | Фактическое состояние |
+| --- | --- |
+| CORE PVE | `192.168.11.240` |
+| VM2243 PVE label | `mediaserver-serzhan` |
+| PVE Storage `pbs-serzhan` | тип `pbs`, сервер `192.168.11.243`, datastore `pbs-serzhan`, namespace root |
+| PVE Backup Job с этим Storage | `dh-local-pbs-serzhan` (1 ссылка) |
+| Legacy datastore на CORE PBS | `pbs-serzhan`, есть реальные `index.json.blob` snapshots |
+| Центральный datastore на CORE PBS | `pbs-core` существует |
+| PVE Storage с ID `pbs-core` | не зарегистрирован; для входящего PBS Push не нужен |
+
+**Решение по аудиту:** legacy storage **не удалять и не переименовывать**,
+пока существует Backup Job, который на него ссылается, и реальные
+snapshots. `pbs-core` — отдельный целевой datastore для Push от домов.
+Простая замена идентификатора в PVE без миграции зависимостей недопустима.
+Переименование VM2243 — отдельное изменение CORE с предварительной
+проверкой site manifest и зависимых автоматизаций. Сам Job #99
+не менял storage, VM, datastore, backup jobs или их данные.
