@@ -1,0 +1,333 @@
+---
+# Normalize the live nginx and leaf certificate to the one VM2243 IP.
+# Uses only native guest binaries through pinned PVE QEMU Guest Agent.
+# Keep the existing CA, CA key and TLS server key unchanged.
+- name: Inspect both actual CORE media nginx site configurations
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, cat, "{{ item }}"]
+  loop:
+    - /etc/nginx/sites-available/default
+    - /etc/nginx/sites-enabled/dh-media-account-https.conf
+  register: core30_nginx_before
+  changed_when: false
+  failed_when: >-
+    core30_nginx_before.rc != 0 or
+    (core30_nginx_before.stdout | from_json).exitcode | int != 0 or
+    ((core30_nginx_before.stdout | from_json)['out-truncated'] | default(false) | bool)
+
+- name: Parse account redirect, HTTPS server name and LAN ACL addresses
+  ansible.builtin.set_fact:
+    core30_nginx_redirect_ips: >-
+      {{ (core30_nginx_before.results[0].stdout | from_json)['out-data']
+         | regex_findall('return 308 https://([0-9.]+)[$]request_uri;') }}
+    core30_nginx_server_ips: >-
+      {{ (core30_nginx_before.results[1].stdout | from_json)['out-data']
+         | regex_findall('server_name ([0-9.]+);') }}
+    core30_nginx_allow_ips: >-
+      {{ (core30_nginx_before.results[1].stdout | from_json)['out-data']
+         | regex_findall('allow ([0-9.]+)/24;') }}
+
+- name: Require only known managed nginx address fields before editing
+  ansible.builtin.assert:
+    that:
+      - core30_nginx_redirect_ips | length == 1
+      - core30_nginx_server_ips | length == 1
+      - core30_nginx_allow_ips | length == 2
+      - >-
+        (core30_nginx_redirect_ips + core30_nginx_server_ips + core30_nginx_allow_ips)
+        | reject('match', '^' ~ (core_media_ipv4.split('.')[:3] | join('.') | regex_escape) ~ '[.][0-9]{1,3}$')
+        | list | length == 0
+    fail_msg: CORE_MEDIA30_UNKNOWN_NGINX_ADDRESS_LAYOUT
+
+- name: Rewrite only the obsolete redirect target to the VM's declared IP
+  ansible.builtin.command:
+    argv:
+      - qm
+      - guest
+      - exec
+      - '2243'
+      - --
+      - sed
+      - -i
+      - "s|return 308 https://{{ core30_nginx_redirect_ips[0] | regex_escape }}[$]request_uri;|return 308 https://{{ core_media_ipv4 }}$request_uri;|g"
+      - /etc/nginx/sites-available/default
+  register: core30_nginx_redirect_repair
+  changed_when: true
+  failed_when: >-
+    core30_nginx_redirect_repair.rc != 0 or
+    (core30_nginx_redirect_repair.stdout | from_json).exitcode | int != 0
+  when:
+    - core_media_action == 'repair-portal'
+    - core30_nginx_redirect_ips[0] != core_media_ipv4
+
+- name: Rewrite only stale HTTPS server_name to the declared VM IP
+  ansible.builtin.command:
+    argv:
+      - qm
+      - guest
+      - exec
+      - '2243'
+      - --
+      - sed
+      - -i
+      - "s|server_name {{ core30_nginx_server_ips[0] | regex_escape }};|server_name {{ core_media_ipv4 }};|g"
+      - /etc/nginx/sites-enabled/dh-media-account-https.conf
+  register: core30_nginx_server_repair
+  changed_when: true
+  failed_when: >-
+    core30_nginx_server_repair.rc != 0 or
+    (core30_nginx_server_repair.stdout | from_json).exitcode | int != 0
+  when:
+    - core_media_action == 'repair-portal'
+    - core30_nginx_server_ips[0] != core_media_ipv4
+
+- name: Canonicalize nginx LAN access CIDRs to the actual subnet address
+  ansible.builtin.command:
+    argv:
+      - qm
+      - guest
+      - exec
+      - '2243'
+      - --
+      - sed
+      - -E
+      - -i
+      - "s|allow ([0-9]{1,3}[.]){3}[0-9]{1,3}/24;|allow {{ core_media_network }};|g"
+      - /etc/nginx/sites-enabled/dh-media-account-https.conf
+  register: core30_nginx_acl_repair
+  changed_when: true
+  failed_when: >-
+    core30_nginx_acl_repair.rc != 0 or
+    (core30_nginx_acl_repair.stdout | from_json).exitcode | int != 0
+  when:
+    - core_media_action == 'repair-portal'
+    - (core30_nginx_allow_ips | difference([core_media_network.split('/')[0]])) | length > 0
+
+- name: Read the current local media-account HTTPS leaf identity
+  ansible.builtin.command:
+    argv:
+      - qm
+      - guest
+      - exec
+      - '2243'
+      - --
+      - openssl
+      - x509
+      - -in
+      - /etc/digitalhouses/media-account-pki/server.crt
+      - -noout
+      - -ext
+      - subjectAltName
+  register: core30_tls_san_before
+  changed_when: false
+
+- name: Extract old certificate IP SAN without reading any private key
+  ansible.builtin.set_fact:
+    core30_tls_existing_ips: >-
+      {{ (core30_tls_san_before.stdout | from_json)['out-data']
+         | regex_findall('IP Address:([0-9.]+)') }}
+
+- name: Require one site-local IP SAN before touching certificate identity
+  ansible.builtin.assert:
+    that:
+      - core30_tls_san_before.rc == 0
+      - (core30_tls_san_before.stdout | from_json).exitcode | int == 0
+      - core30_tls_existing_ips | length == 1
+      - >-
+        core30_tls_existing_ips[0].split('.')[:3] ==
+        core_media_ipv4.split('.')[:3]
+    fail_msg: CORE_MEDIA30_UNKNOWN_TLS_LEAF_IDENTITY
+
+- name: Verify the current certificate chain uses the retained local CA
+  ansible.builtin.command:
+    argv:
+      - qm
+      - guest
+      - exec
+      - '2243'
+      - --
+      - openssl
+      - verify
+      - -CAfile
+      - /etc/digitalhouses/media-account-pki/ca.crt
+      - /etc/digitalhouses/media-account-pki/server.crt
+  register: core30_tls_ca_before
+  changed_when: false
+  failed_when: >-
+    core30_tls_ca_before.rc != 0 or
+    (core30_tls_ca_before.stdout | from_json).exitcode | int != 0
+
+- name: Update only the local HTTPS leaf SAN extension file if IP has changed
+  ansible.builtin.command:
+    argv:
+      - qm
+      - guest
+      - exec
+      - '2243'
+      - --
+      - sed
+      - -i
+      - "s|^subjectAltName=IP:.*$|subjectAltName=IP:{{ core_media_ipv4 }}|"
+      - /etc/digitalhouses/media-account-pki/server.ext
+  register: core30_tls_ext_repair
+  changed_when: true
+  failed_when: >-
+    core30_tls_ext_repair.rc != 0 or
+    (core30_tls_ext_repair.stdout | from_json).exitcode | int != 0
+  when:
+    - core_media_action == 'repair-portal'
+    - core30_tls_existing_ips[0] != core_media_ipv4
+
+- name: Rebuild only a leaf CSR using the existing media HTTPS private key
+  ansible.builtin.command:
+    argv:
+      - qm
+      - guest
+      - exec
+      - '2243'
+      - --
+      - openssl
+      - req
+      - -new
+      - -key
+      - /etc/digitalhouses/media-account-pki/server.key
+      - -out
+      - /etc/digitalhouses/media-account-pki/server.csr
+      - -subj
+      - "/CN={{ core_media_ipv4 }}"
+  register: core30_tls_csr_repair
+  changed_when: true
+  failed_when: >-
+    core30_tls_csr_repair.rc != 0 or
+    (core30_tls_csr_repair.stdout | from_json).exitcode | int != 0
+  no_log: true
+  when:
+    - core_media_action == 'repair-portal'
+    - core30_tls_existing_ips[0] != core_media_ipv4
+
+- name: Re-sign only the HTTPS leaf with its existing trusted local CA
+  ansible.builtin.command:
+    argv:
+      - qm
+      - guest
+      - exec
+      - '2243'
+      - --
+      - openssl
+      - x509
+      - -req
+      - -in
+      - /etc/digitalhouses/media-account-pki/server.csr
+      - -CA
+      - /etc/digitalhouses/media-account-pki/ca.crt
+      - -CAkey
+      - /etc/digitalhouses/media-account-pki/ca.key
+      - -CAcreateserial
+      - -out
+      - /etc/digitalhouses/media-account-pki/server.crt
+      - -days
+      - '397'
+      - -sha256
+      - -extfile
+      - /etc/digitalhouses/media-account-pki/server.ext
+  register: core30_tls_leaf_repair
+  changed_when: true
+  failed_when: >-
+    core30_tls_leaf_repair.rc != 0 or
+    (core30_tls_leaf_repair.stdout | from_json).exitcode | int != 0
+  no_log: true
+  when:
+    - core_media_action == 'repair-portal'
+    - core30_tls_existing_ips[0] != core_media_ipv4
+
+- name: Require leaf certificate now matches the VM IP parameter
+  ansible.builtin.command:
+    argv:
+      - qm
+      - guest
+      - exec
+      - '2243'
+      - --
+      - openssl
+      - x509
+      - -in
+      - /etc/digitalhouses/media-account-pki/server.crt
+      - -noout
+      - -checkip
+      - "{{ core_media_ipv4 }}"
+  register: core30_tls_ip_verified
+  changed_when: false
+  failed_when: >-
+    core30_tls_ip_verified.rc != 0 or
+    (core30_tls_ip_verified.stdout | from_json).exitcode | int != 0
+
+- name: Require the renewed or existing TLS certificate still chains to the same CA
+  ansible.builtin.command:
+    argv:
+      - qm
+      - guest
+      - exec
+      - '2243'
+      - --
+      - openssl
+      - verify
+      - -CAfile
+      - /etc/digitalhouses/media-account-pki/ca.crt
+      - /etc/digitalhouses/media-account-pki/server.crt
+  register: core30_tls_ca_verified
+  changed_when: false
+  failed_when: >-
+    core30_tls_ca_verified.rc != 0 or
+    (core30_tls_ca_verified.stdout | from_json).exitcode | int != 0
+
+- name: Validate nginx configuration with the canonical media IP
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, nginx, -t]
+  register: core30_nginx_test
+  changed_when: false
+  failed_when: >-
+    core30_nginx_test.rc != 0 or
+    (core30_nginx_test.stdout | from_json).exitcode | int != 0
+
+- name: Reload nginx only when address or HTTPS leaf content was repaired
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, systemctl, reload, nginx]
+  register: core30_nginx_reload
+  changed_when: true
+  failed_when: >-
+    core30_nginx_reload.rc != 0 or
+    (core30_nginx_reload.stdout | from_json).exitcode | int != 0
+  when:
+    - core_media_action == 'repair-portal'
+    - >-
+      core30_nginx_redirect_repair is changed or
+      core30_nginx_server_repair is changed or
+      core30_nginx_acl_repair is changed or
+      core30_tls_leaf_repair is changed
+
+- name: Read nginx configs back to verify no stale IP targets remain
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, cat, "{{ item }}"]
+  loop:
+    - /etc/nginx/sites-available/default
+    - /etc/nginx/sites-enabled/dh-media-account-https.conf
+  register: core30_nginx_after
+  changed_when: false
+  failed_when: >-
+    core30_nginx_after.rc != 0 or
+    (core30_nginx_after.stdout | from_json).exitcode | int != 0
+
+- name: Assert nginx redirect, account vhost and both LAN CIDRs match VM IP
+  ansible.builtin.assert:
+    that:
+      - >-
+        ('return 308 https://' ~ core_media_ipv4 ~ '$request_uri;')
+        in (core30_nginx_after.results[0].stdout | from_json)['out-data']
+      - >-
+        ('server_name ' ~ core_media_ipv4 ~ ';')
+        in (core30_nginx_after.results[1].stdout | from_json)['out-data']
+      - >-
+        ((core30_nginx_after.results[1].stdout | from_json)['out-data']
+         | regex_findall('allow ([0-9.]+)/24;')) ==
+        [core_media_network.split('/')[0], core_media_network.split('/')[0]]
+    fail_msg: CORE_MEDIA30_NGINX_IP_NOT_CANONICAL
