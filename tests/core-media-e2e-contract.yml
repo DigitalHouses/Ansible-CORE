@@ -9,8 +9,10 @@
     media: "{{ lookup('ansible.builtin.file', root ~ '/playbooks/core-media-e2e.yml') | from_yaml }}"
     task30: "{{ (catalog.tasks | selectattr('name', 'equalto', '30-CORE Media E2E') | list)[0] }}"
     checks: "{{ media[1].tasks }}"
-    repair: "{{ checks | selectattr('name', 'search', 'Repair only obsolete') | first }}"
+    repair: "{{ checks | selectattr('name', 'search', 'Repair observed stale') | first }}"
+    nginx_tls: "{{ lookup('ansible.builtin.file', root ~ '/tasks/core30-media-nginx-tls.yml') | from_yaml }}"
     alltext: "{{ media | to_json }}"
+    all_nginx: "{{ nginx_tls | to_json }}"
   tasks:
     - name: Require two explicit safe actions and no destructive services
       ansible.builtin.assert:
@@ -19,9 +21,11 @@
           - task30.survey_vars[0].default_value == 'audit'
           - task30.survey_vars[0]['values'] | map(attribute='value') | list == ['audit', 'repair-portal']
           - "'192.168.11.240' in alltext"
-          - "'192.168.11.243' in alltext"
           - "'2243' in alltext"
-          - "'192.168.11.250' in alltext"
+          - "'192.168.11.243' not in alltext"
+          - "'192.168.11.250' not in alltext"
+          - "'ipconfig0' in alltext"
+          - "'core_media_network' in alltext"
           - "'qm, destroy' not in alltext"
           - "'pct, destroy' not in alltext"
           - "'zpool' not in alltext"
@@ -33,10 +37,26 @@
           - "'qm' == repair['ansible.builtin.command'].argv[0]"
           - "'sed' in repair['ansible.builtin.command'].argv"
           - "'-i' in repair['ansible.builtin.command'].argv"
-          - "'s/192[.]168[.]11[.]250/192.168.11.243/g' in repair['ansible.builtin.command'].argv"
+          - "'core_media_ipv4' in repair['ansible.builtin.command'].argv[-2]"
+          - "'core_media_before_ipv4' in repair['ansible.builtin.command'].argv[-2]"
           - "'core_media_portal_file' in (repair['ansible.builtin.command'].argv | last)"
           - "repair.when | length == 2"
           - "'core_media_action' in repair.when[0]"
           - "media[1].vars.core_media_targets | length == 12"
           - "'core_media_links | length == 12' in alltext"
           - "'UNAUTHENTICATED_401' in alltext"
+
+    - name: Require managed nginx redirects and TLS identity to match VM IP
+      ansible.builtin.assert:
+        that:
+          - "'core30-media-nginx-tls.yml' in alltext"
+          - "'core_media_ipv4' in all_nginx"
+          - "'core_media_network' in all_nginx"
+          - "'server_name' in all_nginx"
+          - "'allow' in all_nginx"
+          - "'subjectAltName=IP' in all_nginx"
+          - "'CAkey' in all_nginx"
+          - "'server.crt' in all_nginx"
+          - "'nginx' in all_nginx"
+          - "'192.168.11.250' not in all_nginx"
+          - "'192.168.11.243' not in all_nginx"
