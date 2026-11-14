@@ -1,0 +1,94 @@
+---
+# After clean Debian+PBS installation, attach existing PBS metadata to the
+# already imported physical ZFS pool. This never restores the old Debian OS.
+- name: Find CORE PBS identity snapshot on preserved SATA ZFS
+  ansible.builtin.find:
+    paths: /serzhan-pool/digitalhouses/core31-recreate
+    patterns: 'guest-state-*.tar.gz'
+    file_type: file
+    recurse: false
+  register: core_media_pbs_archive
+
+- name: Require unique protected identity archive before reattaching PBS
+  ansible.builtin.assert:
+    that:
+      - core_media_pbs_archive.matched == 1
+      - core_media_pbs_archive.files[0].size | int > 1048576
+    fail_msg: CORE_MEDIA_PBS_IDENTITY_ARCHIVE_NOT_FOUND
+
+- name: Verify preserved PBS identity and credentials archive checksum
+  ansible.builtin.command:
+    argv: [sha256sum, --check, "{{ core_media_pbs_archive.files[0].path }}.sha256"]
+  changed_when: false
+  no_log: true
+
+- name: Stop newly installed PBS services while adopting existing keys
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    state: stopped
+  loop:
+    - proxmox-backup-proxy.service
+    - proxmox-backup.service
+
+- name: Reattach only PBS metadata, certificates, ACL and CORE50 tokens from SATA
+  ansible.builtin.command:
+    argv:
+      - tar
+      - --extract
+      - --gzip
+      - --file
+      - "{{ core_media_pbs_archive.files[0].path }}"
+      - --directory
+      - /
+      - etc/proxmox-backup
+      - root/.digitalhouses/core50
+  changed_when: true
+  no_log: true
+
+- name: Require preserved TLS key and both original PBS datastore registrations
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    follow: false
+  loop:
+    - /etc/proxmox-backup/proxy.pem
+    - /etc/proxmox-backup/proxy.key
+    - /etc/proxmox-backup/token.shadow
+    - /etc/proxmox-backup/user.cfg
+    - /etc/proxmox-backup/datastore.cfg
+    - /root/.digitalhouses/core50/serzhan-home-push.json
+  register: core_media_pbs_identity_stat
+
+- name: Refuse missing restored PBS identity and API credentials
+  ansible.builtin.assert:
+    that:
+      - core_media_pbs_identity_stat.results | rejectattr('stat.isreg', 'defined') | list | length == 0
+      - core_media_pbs_identity_stat.results | selectattr('stat.exists', 'equalto', false) | list | length == 0
+    fail_msg: CORE_MEDIA_PBS_AUTH_RESTORE_INCOMPLETE
+
+- name: Start fresh PBS installation with preserved API identity
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - proxmox-backup.service
+    - proxmox-backup-proxy.service
+
+- name: Check imported PBS datastore paths from original configuration
+  ansible.builtin.command:
+    argv: [proxmox-backup-manager, datastore, list, --output-format, json]
+  register: core_media_pbs_stores
+  changed_when: false
+
+- name: Require both preserved ZFS-backed datastores after new package installation
+  ansible.builtin.assert:
+    that:
+      - >-
+        (core_media_pbs_stores.stdout | from_json
+         | selectattr('name','equalto','pbs-core')
+         | map(attribute='path') | list) == ['/serzhan-pool/pbs-core']
+      - >-
+        (core_media_pbs_stores.stdout | from_json
+         | selectattr('name','equalto','pbs-serzhan')
+         | map(attribute='path') | list) == ['/serzhan-pool/pbs-serzhan']
+    fail_msg: CORE_MEDIA_PBS_DATASTORE_CONFIG_NOT_REATTACHED

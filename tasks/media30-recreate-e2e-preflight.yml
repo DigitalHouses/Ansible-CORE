@@ -1,0 +1,125 @@
+---
+# Read-only gate for CORE VM2243 recreate + ZFS import.
+# The guest root disk is disposable; the PCI SATA disk and PBS chunks are NOT.
+- name: Confirm selected site and nondestructive ZFS import before VM teardown
+  ansible.builtin.assert:
+    that:
+      - media_site.id == 'dh-core'
+      - media_spec.vmid | int == 2243
+      - media_spec.network.ipv4 == '192.168.11.243/24'
+      - media_vm_action == 'recreate'
+      - media_disk_action == 'import'
+      - media_vm_conf.stat.exists
+      - >-
+        media_vm_power.stdout | trim == 'status: running'
+      - media_current_vm.hostpci1 | default('') is search(media_spec.pci.sata_controller | regex_escape)
+    fail_msg: MEDIA30_RECREATE_IMPORT_PINNED_GUEST_OR_DISK_MISMATCH
+
+- name: Check live guest ZFS pool is healthy before power-down
+  ansible.builtin.command:
+    argv:
+      - qm
+      - guest
+      - exec
+      - "{{ media_spec.vmid }}"
+      - --
+      - zpool
+      - status
+      - -x
+      - "{{ media_spec.storage.pool_name }}"
+  register: media30_e2e_pool_health
+  changed_when: false
+
+- name: Require physical ZFS pool is present and healthy
+  ansible.builtin.assert:
+    that:
+      - media30_e2e_pool_health.rc == 0
+      - (media30_e2e_pool_health.stdout | from_json).exitcode | int == 0
+      - "'is healthy' in (media30_e2e_pool_health.stdout | from_json)['out-data']"
+    fail_msg: MEDIA30_RECREATE_POOL_NOT_HEALTHY
+
+- name: Check exact ZFS dataset holding the local PBS datastore
+  ansible.builtin.command:
+    argv:
+      - qm
+      - guest
+      - exec
+      - "{{ media_spec.vmid }}"
+      - --
+      - zfs
+      - list
+      - -H
+      - -o
+      - name
+      - "{{ media_spec.storage.pool_name }}/pbs-{{ media_site.owner_slug }}"
+  register: media30_e2e_pbs_dataset
+  changed_when: false
+
+- name: Require existing PBS ZFS dataset survives on physical SATA passthrough
+  ansible.builtin.assert:
+    that:
+      - media30_e2e_pbs_dataset.rc == 0
+      - (media30_e2e_pbs_dataset.stdout | from_json).exitcode | int == 0
+      - >-
+        ((media30_e2e_pbs_dataset.stdout | from_json)['out-data'] | trim)
+        == media_spec.storage.pool_name ~ '/pbs-' ~ media_site.owner_slug
+    fail_msg: MEDIA30_RECREATE_PBS_DATASET_MISSING
+
+- name: Check existing local PBS chunkstore directory without touching it
+  ansible.builtin.command:
+    argv:
+      - qm
+      - guest
+      - exec
+      - "{{ media_spec.vmid }}"
+      - --
+      - test
+      - -d
+      - "/{{ media_spec.storage.pool_name }}/pbs-{{ media_site.owner_slug }}/.chunks"
+  register: media30_e2e_pbs_chunks
+  changed_when: false
+
+- name: Require preserved PBS chunkstore to exist on ZFS
+  ansible.builtin.assert:
+    that:
+      - media30_e2e_pbs_chunks.rc == 0
+      - (media30_e2e_pbs_chunks.stdout | from_json).exitcode | int == 0
+    fail_msg: MEDIA30_RECREATE_PBS_CHUNKS_MISSING
+
+- name: Read current local PBS datastore registration without modifying it
+  ansible.builtin.command:
+    argv:
+      - qm
+      - guest
+      - exec
+      - "{{ media_spec.vmid }}"
+      - --
+      - proxmox-backup-manager
+      - datastore
+      - show
+      - "pbs-{{ media_site.owner_slug }}"
+      - --output-format
+      - json
+  register: media30_e2e_pbs_config
+  changed_when: false
+
+- name: Require local PBS datastore currently references physical ZFS data
+  ansible.builtin.assert:
+    that:
+      - media30_e2e_pbs_config.rc == 0
+      - (media30_e2e_pbs_config.stdout | from_json).exitcode | int == 0
+      - >-
+        (((media30_e2e_pbs_config.stdout | from_json)['out-data'] | from_json).path)
+        == '/' ~ media_spec.storage.pool_name ~ '/pbs-' ~ media_site.owner_slug
+    fail_msg: MEDIA30_RECREATE_PBS_DATASTORE_PATH_MISMATCH
+
+- name: Report read-only confirmation of proposed E2E without deleting VM
+  ansible.builtin.debug:
+    msg:
+      - MEDIA30_E2E_PREFLIGHT=PASS
+      - MEDIA30_E2E_VM=2243
+      - MEDIA30_E2E_DISK_ACTION=IMPORT_NO_ERASE
+      - "MEDIA30_E2E_SATA_PCI={{ media_spec.pci.sata_controller }}"
+      - "MEDIA30_E2E_ZFS={{ media_spec.storage.pool_name }} HEALTHY"
+      - "MEDIA30_E2E_PBS_DATASTORE=pbs-{{ media_site.owner_slug }}"
+      - MEDIA30_E2E_NEXT=RECREATE_VM_THEN_REIMPORT_PBS_WITH_TASK33
