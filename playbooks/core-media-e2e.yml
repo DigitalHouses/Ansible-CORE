@@ -174,6 +174,9 @@
         - core_media_action == 'repair-portal'
         - core_media_before_ipv4[0] != core_media_ipv4
 
+    - name: Synchronize account redirects, nginx LAN ACLs and HTTPS certificate to the VM IP
+      ansible.builtin.include_tasks: ../tasks/core30-media-nginx-tls.yml
+
     - name: Read live portal after audit or surgical repair
       ansible.builtin.uri:
         url: "http://{{ core_media_ipv4 }}/"
@@ -254,6 +257,8 @@
           - "CORE_MEDIA30_ACTION={{ core_media_action }}"
           - CORE_MEDIA30_VM=2243
           - CORE_MEDIA30_IP_SOURCE=PVE_VM_IPCONFIG0
+          - "CORE_MEDIA30_NGINX_CONFIG={{ 'REPAIRED' if core30_nginx_reload is changed else 'ALREADY_CURRENT' }}"
+          - CORE_MEDIA30_TLS_IDENTITY=VM_IP_VERIFIED
           - "CORE_MEDIA30_GUEST_IP={{ core_media_ipv4 }}"
           - "CORE_MEDIA30_PORTAL_LINKS={{ core_media_links | length }} VALID"
           - "CORE_MEDIA30_WEB_SERVICES={{ core_media_http_checks.results | length }} HTTP_200"
