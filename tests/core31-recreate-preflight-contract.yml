@@ -20,7 +20,6 @@
           - "'core-resource-standard-assert.yml' in (playbook | to_json)"
           - "'core31-media-recreate-preflight.yml' in (playbook | to_json)"
           - "'core31-media-protect.yml' in (playbook | to_json)"
-          - "'core31_action == \'protect\'' not in ''"
           - "'CORE31_UNSUPPORTED_OR_DESTRUCTIVE_ACTION_REFUSED' in (playbook | to_json)"
 
     - name: Preflight requires exact protected VM, ZFS, PBS and credentials
