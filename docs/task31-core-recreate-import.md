@@ -128,3 +128,30 @@ reprovisioning/restore-контракта и теста отката ни оди
 **not** proof of cold/offline consistency, standalone system rebuild,
 disk-loss DR, or a successful VM restore. Full Recreate + Import
 remains blocked by the missing CORE native fresh-provisioning workflow.
+
+
+## CORE №31 action 03 — Recreate + Import (2026-11-14)
+
+This native CORE-only action is now implemented as
+`DH_CORE31_ACTION=recreate-import`. It **recreates** the Proxmox VM2243
+from the already protected `vzdump` virtual system-disk archive.
+It is **not a fresh Debian install** and deliberately retains installed
+apps, PBS identity, credentials and Tailscale configuration.
+
+The action validates the archive SHA256, preserved ZFS credential
+archive, SATA serial, ZFS GUID and PBS TLS fingerprint. It then
+gracefully shuts down VM2243, removes its protected VM config and
+owned **virtual** OS/cloud-init disks (never the passed-through SATA),
+and creates VM2243 using native `qmrestore` to `local-lvm`. The
+new PVE VM name is `mediaserver-dh-core`; VMID and address remain
+`2243 / 192.168.11.243`. After boot it validates physical pool GUID,
+`pbs-core`/`pbs-serzhan` datastore paths, unchanged PBS certificate
+fingerprint and working PBS HTTPS API.
+
+The previously saved archive remains under `/var/lib/vz/dump` and
+is **not deleted**. This is a service interruption. A failed restore
+requires recovering from the retained archive; never use `erase`.
+
+For a **fresh Debian OS** rebuild, a separate provisioning pipeline
+would be needed. Do not claim this action reinstalls Debian or
+recreates native media applications.
