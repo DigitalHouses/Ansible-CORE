@@ -32,61 +32,176 @@
   failed_when: core31_rehearsal_checksum.rc != 0
   no_log: true
 
-- name: Restore protected PVE rollback archive to disposable VM99831
-  ansible.builtin.command:
-    argv:
-      - qmrestore
-      - "{{ core31_boot_archives.files[0].path }}"
-      - '99831'
-      - --storage
-      - local-lvm
-      - --unique
-      - '1'
-      - --start
-      - '0'
-  register: core31_rehearsal_restore
-  changed_when: true
-  # Do not destroy or overwrite any production VM on failure.
-  failed_when: core31_rehearsal_restore.rc != 0
+- name: Perform the isolated rollback rehearsal and always fail safely on errors
+  block:
+    - name: Restore protected PVE rollback archive to disposable VM99831
+      ansible.builtin.command:
+        argv:
+          - qmrestore
+          - "{{ core31_boot_archives.files[0].path }}"
+          - '99831'
+          - --storage
+          - local-lvm
+          - --unique
+          - '1'
+          - --start
+          - '0'
+      register: core31_rehearsal_restore
+      changed_when: true
+      # Do not destroy or overwrite any production VM on failure.
+      failed_when: core31_rehearsal_restore.rc != 0
+    
+    - name: Require exact stopped newly restored disposable VM
+      ansible.builtin.command:
+        argv: [qm, status, '99831']
+      register: core31_rehearsal_stopped
+      changed_when: false
+      failed_when: core31_rehearsal_stopped.stdout | trim != 'status: stopped'
+    
+    - name: Turn off automatic start and remove PCI, network and USB on disposable VM
+      ansible.builtin.command:
+        argv:
+          - qm
+          - set
+          - '99831'
+          - --protection
+          - '0'
+          - --onboot
+          - '0'
+          - --delete
+          - hostpci0,hostpci1,net0
+          - --name
+          - dh-core-rollback-test
+      changed_when: true
+    
+    - name: Read back disposable VM configuration before isolated boot
+      ansible.builtin.command:
+        argv: [qm, config, '99831']
+      register: core31_rehearsal_config
+      changed_when: false
+    
+    - name: Reject any inherited network, host PCI devices or wrong boot disk
+      ansible.builtin.assert:
+        that:
+          - core31_rehearsal_config.stdout is search('(?m)^name: dh-core-rollback-test$')
+          - core31_rehearsal_config.stdout is search('(?m)^scsi0: local-lvm:vm-99831-disk-0,')
+          - not (core31_rehearsal_config.stdout is search('(?m)^net[0-9]+:'))
+          - not (core31_rehearsal_config.stdout is search('(?m)^hostpci[0-9]+:'))
+          - not (core31_rehearsal_config.stdout is search('(?m)^usb[0-9]+:'))
+          - not (core31_rehearsal_config.stdout is search('(?m)^onboot: 1
+          - core31_rehearsal_config.stdout is search('(?m)^agent: enabled=1$')
+        fail_msg: CORE31_RESTORE_TEST_FAILED_HARDWARE_ISOLATION
+    
+    - name: Boot only the isolated disposable rollback guest
+      ansible.builtin.command:
+        argv: [qm, start, '99831']
+      changed_when: true
+    
+    - name: Wait for restored Debian guest QGA without ever connecting to LAN
+      ansible.builtin.command:
+        argv: [qm, guest, exec, '99831', --, /bin/cat, /etc/os-release]
+      register: core31_rehearsal_os_raw
+      changed_when: false
+      failed_when: false
+      retries: 25
+      delay: 4
+      until: >-
+        core31_rehearsal_os_raw.rc == 0 and
+        (core31_rehearsal_os_raw.stdout | default('{}', true) | from_json).get('exitcode', 1) | int == 0
+    
+    - name: Accept isolated boot only from Debian 13 restored root disk
+      ansible.builtin.assert:
+        that:
+          - core31_rehearsal_os_raw.rc == 0
+          - (core31_rehearsal_os_raw.stdout | from_json).exitcode | int == 0
+          - "'VERSION_ID=\"13\"' in (core31_rehearsal_os_raw.stdout | from_json)['out-data']"
+        fail_msg: CORE31_RESTORE_TEST_GUEST_OS_INVALID
+    
+    - name: Stop disposable VM only after successful boot
+      ansible.builtin.command:
+        argv: [qm, stop, '99831']
+      changed_when: true
+    
+    - name: Verify test guest stopped before cleaning up its allocated virtual volume
+      ansible.builtin.command:
+        argv: [qm, status, '99831']
+      register: core31_rehearsal_stopped_after
+      changed_when: false
+      failed_when: core31_rehearsal_stopped_after.stdout | trim != 'status: stopped'
+    
+    - name: Destroy only disposable VM99831 and its own restored local-lvm disk
+      ansible.builtin.command:
+        argv: [qm, destroy, '99831', --purge, '1']
+      changed_when: true
+    
+    - name: Confirm disposable test VM fully cleaned without touching production
+      ansible.builtin.stat:
+        path: /etc/pve/qemu-server/99831.conf
+      register: core31_rehearsal_cleanup
+      changed_when: false
+    
+    - name: Confirm original VM2243 remained running throughout test
+      ansible.builtin.command:
+        argv: [qm, status, "{{ core_media_vmid | string }}"]
+      register: core31_rehearsal_final_prod
+      changed_when: false
+    
+    - name: Require no disposable VM and uninterrupted CORE PBS guest
+      ansible.builtin.assert:
+        that:
+          - not core31_rehearsal_cleanup.stat.exists
+          - core31_rehearsal_final_prod.stdout | trim == 'status: running'
+        fail_msg: CORE31_RESTORE_TEST_CLEANUP_OR_PRODUCTION_STATE_UNSAFE
+  rescue:
+    - name: Attempt to stop ONLY disposable VM99831 after incomplete rehearsal
+      ansible.builtin.command:
+        argv: [qm, stop, '99831']
+      changed_when: true
+      failed_when: false
 
-- name: Require exact stopped newly restored disposable VM
-  ansible.builtin.command:
-    argv: [qm, status, '99831']
-  register: core31_rehearsal_stopped
-  changed_when: false
-  failed_when: core31_rehearsal_stopped.stdout | trim != 'status: stopped'
+    - name: Inspect disposable VM config before cleanup after failed rehearsal
+      ansible.builtin.command:
+        argv: [qm, config, '99831']
+      register: core31_rehearsal_failed_config
+      changed_when: false
+      failed_when: false
 
-- name: Turn off automatic start and remove PCI, network and USB on disposable VM
-  ansible.builtin.command:
-    argv:
-      - qm
-      - set
-      - '99831'
-      - --protection
-      - '0'
-      - --onboot
-      - '0'
-      - --delete
-      - hostpci0,hostpci1,net0
-      - --name
-      - dh-core-rollback-test
-  changed_when: true
+    - name: Require ownership of disposable restore artifact before automatic cleanup
+      ansible.builtin.assert:
+        that:
+          - >-
+            core31_rehearsal_failed_config.rc != 0
+            or core31_rehearsal_failed_config.stdout is search('(?m)^scsi0: local-lvm:vm-99831-disk-0,')
+        fail_msg: CORE31_RESTORE_TEST_UNEXPECTED_VM99831_NEEDS_MANUAL_INSPECTION
 
-- name: Read back disposable VM configuration before isolated boot
-  ansible.builtin.command:
-    argv: [qm, config, '99831']
-  register: core31_rehearsal_config
-  changed_when: false
+    - name: Prevent disposable test VM from ever auto-booting with inherited PCI mapping
+      ansible.builtin.command:
+        argv: [qm, set, '99831', --protection, '0', --onboot, '0', --delete, 'hostpci0,hostpci1,net0']
+      when: core31_rehearsal_failed_config.rc == 0
+      changed_when: true
+      failed_when: false
 
-- name: Reject any inherited network, host PCI devices or wrong boot disk
-  ansible.builtin.assert:
-    that:
-      - core31_rehearsal_config.stdout is search('(?m)^name: dh-core-rollback-test$')
-      - core31_rehearsal_config.stdout is search('(?m)^scsi0: local-lvm:vm-99831-disk-0,')
-      - not (core31_rehearsal_config.stdout is search('(?m)^net[0-9]+:'))
-      - not (core31_rehearsal_config.stdout is search('(?m)^hostpci[0-9]+:'))
-      - not (core31_rehearsal_config.stdout is search('(?m)^usb[0-9]+:'))
-      - core31_rehearsal_config.stdout is search('(?m)^onboot: 0$')
+    - name: Remove ONLY disposable VM99831 after incomplete restore test
+      ansible.builtin.command:
+        argv: [qm, destroy, '99831', --purge, '1']
+      when: core31_rehearsal_failed_config.rc == 0
+      changed_when: true
+
+    - name: Fail after isolating and cleaning the disposable VM
+      ansible.builtin.fail:
+        msg: CORE31_ROLLBACK_RESTORE_REHEARSAL_FAILED_VERIFY_LOG
+
+- name: Report read-only-to-production restore rehearsal
+  ansible.builtin.debug:
+    msg:
+      - CORE31_ROLLBACK_RESTORE=SUCCESS
+      - CORE31_ROLLBACK_RESTORED_VM=99831
+      - CORE31_ROLLBACK_OS=DEBIAN_13_BOOT_VERIFIED
+      - CORE31_ROLLBACK_LAN_AND_PCI=DISCONNECTED
+      - CORE31_ROLLBACK_TEST_VM=CLEANED
+      - CORE31_PRODUCTION_VM2243=RUNNING_UNCHANGED
+      - CORE31_RECREATE=NOT_STARTED
+))
       - core31_rehearsal_config.stdout is search('(?m)^agent: enabled=1$')
     fail_msg: CORE31_RESTORE_TEST_FAILED_HARDWARE_ISOLATION
 
