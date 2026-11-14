@@ -90,7 +90,7 @@
 - name: Require confirmed clean shutdown
   ansible.builtin.assert:
     that:
-      - core31_offline_state.stdout | trim == 'status: stopped'
+      - "core31_offline_state.stdout | trim == 'status: stopped'"
       - core31_graceful_shutdown.rc == 0
     fail_msg: CORE31_VM_STILL_RUNNING_ABORT_DESTROY
 
