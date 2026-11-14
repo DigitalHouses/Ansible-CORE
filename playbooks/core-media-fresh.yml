@@ -10,7 +10,8 @@
     - ../vars/core-resource-standard.yml
     - ../vars/core-media-deploy.yml
   vars:
-    media_mode: "{{ DH_CORE31_ACTION | default('audit', true) }}"
+    core31_action: "{{ DH_CORE31_ACTION | default('audit', true) }}"
+    media_mode: "{{ 'apply' if core31_action == 'resume' else core31_action }}"
     media_site: "{{ core_media_site }}"
     media_spec: "{{ core_media_spec }}"
     media_disk_action: import
@@ -19,6 +20,7 @@
     - name: Require only clean install or audit, pinned CORE identity and non-destructive ZFS import
       ansible.builtin.assert:
         that:
+          - core31_action in ['audit','apply','resume']
           - media_mode in ['audit','apply']
           - media_disk_action == 'import'
           - media_site.id == 'dh-core'
@@ -46,6 +48,7 @@
           -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes
           -o UserKnownHostsFile=/var/lib/semaphore/.ssh/known_hosts
         media_mode: "{{ media_mode }}"
+        core31_action: "{{ core31_action }}"
         media_site: "{{ media_site }}"
         media_spec: "{{ media_spec }}"
         media_site_blob: CORE_LOCAL_MANIFEST
@@ -80,9 +83,18 @@
         follow: false
       register: media_vm_conf
 
-    - name: Select create or recreate from actual CORE VM2243 presence
+    - name: Select create, recreate, or resume the current clean Debian VM
       ansible.builtin.set_fact:
-        media_vm_action: "{{ 'recreate' if media_vm_conf.stat.exists else 'create' }}"
+        media_vm_action: >-
+          {{ 'keep' if core31_action == 'resume'
+             else ('recreate' if media_vm_conf.stat.exists else 'create') }}
+
+    - name: Require an existing VM2243 before non-destructive resume
+      ansible.builtin.assert:
+        that:
+          - media_vm_conf.stat.exists
+        fail_msg: CORE31_RESUME_REQUIRES_EXISTING_VM2243
+      when: core31_action == 'resume'
 
     - name: Read existing target VM configuration without changes
       ansible.builtin.command:

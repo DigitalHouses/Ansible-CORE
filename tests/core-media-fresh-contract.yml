@@ -13,6 +13,7 @@
     vm: "{{ lookup('ansible.builtin.file', root ~ '/tasks/media-vm-apply.yml') | from_yaml }}"
     pbs: "{{ lookup('ansible.builtin.file', root ~ '/tasks/core-media-pbs-import.yml') }}"
     catalog: "{{ lookup('ansible.builtin.file', root ~ '/catalog/tasks.yml') | from_yaml }}"
+    pbs_identity: "{{ lookup('ansible.builtin.file', root ~ '/tasks/core-media-pbs-import.yml') | from_yaml }}"
     item31: "{{ (catalog.tasks | selectattr('name', 'equalto', '31-CORE Media/PBS — Create/Recreate + Import') | list) | first }}"
   tasks:
     - name: Pin CORE addressing, guest IDs, original SATA and ZFS
@@ -28,7 +29,7 @@
           - core_media_spec.pci.gpu == '0000:2f:00.0'
           - item31.playbook == 'playbooks/core-media-fresh.yml'
           - item31.survey_vars[0].default_value == 'audit'
-          - item31.survey_vars[0]['values'] | map(attribute='value') | list == ['audit','apply']
+          - item31.survey_vars[0]['values'] | map(attribute='value') | list == ['audit','apply','resume']
 
     - name: Require fresh Debian cloud image and native VM creation, never OS archive restore
       ansible.builtin.assert:
@@ -58,3 +59,12 @@
           - "'etc/proxmox-backup' in pbs"
           - "'pbs-core' in pbs"
           - "'pbs-serzhan' in pbs"
+
+    - name: Require resumed install to avoid recreating the already fresh VM
+      ansible.builtin.assert:
+        that:
+          - "'keep' in (clean | to_json)"
+          - "'media_vm_action' in (clean | to_json)"
+          - >-
+            (pbs_identity | selectattr('name', 'equalto', 'Verify preserved PBS identity and credentials archive checksum') | first).args.chdir
+            == '/serzhan-pool/digitalhouses/core31-recreate'

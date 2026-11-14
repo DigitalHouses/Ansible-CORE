@@ -19,6 +19,8 @@
 - name: Verify preserved PBS identity and credentials archive checksum
   ansible.builtin.command:
     argv: [sha256sum, --check, "{{ core_media_pbs_archive.files[0].path }}.sha256"]
+  args:
+    chdir: /serzhan-pool/digitalhouses/core31-recreate
   changed_when: false
   no_log: true
 
