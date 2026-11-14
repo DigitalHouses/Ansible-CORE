@@ -8,6 +8,7 @@
   gather_facts: false
   vars_files:
     - /etc/digitalhouses/pve.yml
+    - ../vars/core-resource-standard.yml
   vars:
     core40_action: "{{ DH_CORE40_ACTION | default('audit', true) }}"
     core40_site: "{{ lookup('ansible.builtin.file', '/etc/digitalhouses/site-id') | trim }}"
@@ -22,6 +23,9 @@
           - pve.ipv4 == '192.168.11.240'
           - pve.node | length > 0
         fail_msg: CORE40_WRONG_SITE_OR_RETIRED_WARP_ACTION
+
+    - name: Assert deterministic CORE IP, VMID and CTID mapping
+      ansible.builtin.include_tasks: ../tasks/core-resource-standard-assert.yml
 
     - name: Register only central Proxmox host
       ansible.builtin.add_host:
@@ -44,6 +48,8 @@
 - name: "40 | Audit CORE PVE and protect PBS datastore"
   hosts: core40_pve_group
   gather_facts: false
+  vars_files:
+    - ../vars/core-resource-standard.yml
   tasks:
     - name: Read actual CORE PVE node name
       ansible.builtin.command:
@@ -70,7 +76,7 @@
 
     - name: Identify standard and legacy resources
       ansible.builtin.set_fact:
-        core40_media_standard: "{{ (core40_qemu_raw.stdout | from_json) | selectattr('vmid', 'equalto', 2243) | list }}"
+        core40_media_standard: "{{ (core40_qemu_raw.stdout | from_json) | selectattr('vmid', 'equalto', core_media_vmid | int) | list }}"
         core40_media_legacy: "{{ (core40_qemu_raw.stdout | from_json) | selectattr('vmid', 'equalto', 2250) | list }}"
         core40_storage_legacy: "{{ (core40_storage_raw.stdout | from_json) | selectattr('storage', 'equalto', 'pbs-serzhan') | list }}"
         core40_storage_central: "{{ (core40_storage_raw.stdout | from_json) | selectattr('storage', 'equalto', 'pbs-core') | list }}"
