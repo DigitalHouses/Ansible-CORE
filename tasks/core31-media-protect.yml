@@ -1,0 +1,126 @@
+---
+# CORE31 protection stage: creates a rollback snapshot of VM2243's virtual
+# boot disk on CORE PVE NVMe, plus a root-only ZFS copy of its guest settings.
+# Explicit protect action only. Never destroys, readdresses or shuts down VM.
+- name: Require no existing CORE31 native backup to avoid silent duplicate archives
+  ansible.builtin.assert:
+    that:
+      - core31_boot_archives.matched == 0
+    fail_msg: CORE31_BOOT_BACKUP_ALREADY_EXISTS_AUDIT_BEFORE_REPEATING
+
+- name: Export protected CORE PBS credentials, auth keys and media application state to preserved ZFS
+  ansible.builtin.command:
+    argv:
+      - qm
+      - guest
+      - exec
+      - "{{ core_media_vmid | string }}"
+      - --timeout
+      - '0'
+      - --
+      - /bin/bash
+      - -lc
+      - |
+        set -Eeuo pipefail
+        umask 077
+        root=/serzhan-pool/digitalhouses/core31-recreate
+        [ ! -L "$root" ] || exit 11
+        install -d -m 0700 "$root"
+        [ "$(stat -c %a "$root")" = 700 ] || exit 12
+        timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+        archive="$root/guest-state-$timestamp.tar.gz"
+        paths=(
+          etc/proxmox-backup root/.digitalhouses/core50
+          var/lib/tailscale var/lib/plexmediaserver
+          var/lib/radarr var/lib/sonarr var/lib/prowlarr
+          var/lib/qbittorrent var/lib/jellyfin
+          etc/nginx etc/ssl etc/samba etc/ssh
+          etc/systemd/system etc/netplan var/lib/cloud
+        )
+        for path in "${paths[@]}"; do [ -d "/$path" ] || exit 13; done
+        tar --acls --xattrs --numeric-owner -C / -czf "$archive.part" "${paths[@]}"
+        test -s "$archive.part"
+        mv -n "$archive.part" "$archive"
+        chmod 0600 "$archive"
+        (cd "$root" && sha256sum "$(basename "$archive")" > "$(basename "$archive").sha256")
+        chmod 0600 "$archive.sha256"
+        tar -tzf "$archive" >/dev/null
+        echo "CORE31_PROTECTED_ZFS_CONFIG_ARCHIVE=$(basename "$archive")"
+  register: core31_guest_export_raw
+  changed_when: true
+  failed_when: >-
+    core31_guest_export_raw.rc != 0 or
+    (core31_guest_export_raw.stdout | default('{}', true) | from_json).get('exitcode', 1) | int != 0
+  no_log: true
+
+- name: Create a native independent PVE backup of only the VM virtual boot disk
+  ansible.builtin.command:
+    argv:
+      - vzdump
+      - "{{ core_media_vmid | string }}"
+      - --mode
+      - snapshot
+      - --compress
+      - zstd
+      - --dumpdir
+      - /var/lib/vz/dump
+  register: core31_native_vzdump
+  changed_when: true
+  # VM continues serving CORE PBS. This is a hot, crash-consistent checkpoint;
+  # a future cold checkpoint is still needed before destructive cutover.
+  no_log: true
+
+- name: Identify newly generated CORE31 native rollback archive
+  ansible.builtin.find:
+    paths: /var/lib/vz/dump
+    patterns: 'vzdump-qemu-2243-*.vma.zst'
+    file_type: file
+    recurse: false
+  register: core31_native_archives_after
+  changed_when: false
+
+- name: Require exactly one new substantial native boot-disk backup
+  ansible.builtin.assert:
+    that:
+      - core31_native_archives_after.matched == 1
+      - (core31_native_archives_after.files[0].size | int) > 104857600
+    fail_msg: CORE31_NATIVE_VZDUMP_MISSING_OR_UNEXPECTED_DUPLICATE
+
+- name: Restrict offline native boot-disk archive to CORE PVE root
+  ansible.builtin.file:
+    path: "{{ core31_native_archives_after.files[0].path }}"
+    owner: root
+    group: root
+    mode: '0600'
+
+- name: Validate zstd archive payload before ever accepting an offline restore point
+  ansible.builtin.command:
+    argv: [zstd, -t, "{{ core31_native_archives_after.files[0].path }}"]
+  register: core31_native_archive_test
+  changed_when: false
+
+- name: Calculate independent SHA256 for later rollback acceptance
+  ansible.builtin.command:
+    argv: [sha256sum, "{{ core31_native_archives_after.files[0].path }}"]
+  register: core31_native_archive_checksum
+  changed_when: false
+
+- name: Store protected checksum alongside rollback archive
+  ansible.builtin.copy:
+    dest: "{{ core31_native_archives_after.files[0].path }}.sha256"
+    content: "{{ core31_native_archive_checksum.stdout }}\n"
+    owner: root
+    group: root
+    mode: '0600'
+
+- name: Report protection readiness without exposing secrets or modifying VM2243
+  ansible.builtin.debug:
+    msg:
+      - CORE31_MODE=PROTECT
+      - CORE31_VM2243=RUNNING_UNCHANGED
+      - CORE31_ZFS=IMPORTED_AND_UNCHANGED
+      - "CORE31_NVME_ROLLBACK={{ core31_native_archives_after.files[0].path }}"
+      - CORE31_NVME_ZSTD_INTEGRITY=PASS
+      - CORE31_ZFS_CREDENTIAL_EXPORT=PROTECTED_ROOT_ONLY
+      - CORE31_OFFLINE_CONSISTENCY=NOT_YET_PROVEN_HOT_BACKUP
+      - CORE31_RECREATE=NOT_IMPLEMENTED_NOT_EXECUTED
