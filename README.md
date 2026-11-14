@@ -4,6 +4,7 @@ Independent native Ansible + existing Semaphore for central **dh-core** infrastr
 
 - **00** — reconcile CORE Semaphore catalog.
 - **05-Ввести и проверить credentials** — maintain shared native Semaphore credentials for all CORE tasks.
+- **30-CORE Media E2E** — validate canonical CORE VM2243/.243 identity and services; detect historical VM name pending Recreate + Import.
 - **40-CORE Infrastructure** — audit CORE PVE/PBS infrastructure; safely
   prepare dedicated `pbs-core` datastore when explicitly selected.
 - **50-Central Backup** — audit central PBS; pilot serzhan-home namespace,
@@ -18,6 +19,8 @@ CORE never provisions HOME from this repository. CORE PVE/PBS use a common Tails
 HOME PBS → CORE PBS route; real Push/Restore is not yet tested. HOME independently
 runs local backups.
 Backblaze B2 is deferred (source HOME vs CORE not decided).
+
+Resource IDs and naming: `docs/core-resource-standard.md`.
 
 See `bootstrap/README.md`, `docs/repository-split.md`,
 `docs/task05-credentials.md`, `docs/task40-central-pbs.md`,
