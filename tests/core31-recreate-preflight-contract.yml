@@ -1,0 +1,61 @@
+---
+- name: Contract — CORE31 preserves running VM2243 until a separate accepted rebuild
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    root: "{{ playbook_dir | dirname }}"
+    catalog: "{{ lookup('ansible.builtin.file', root ~ '/catalog/tasks.yml') | from_yaml }}"
+    playbook: "{{ lookup('ansible.builtin.file', root ~ '/playbooks/core-media-recreate.yml') | from_yaml }}"
+    audit: "{{ lookup('ansible.builtin.file', root ~ '/tasks/core31-media-recreate-preflight.yml') | from_yaml }}"
+    protect: "{{ lookup('ansible.builtin.file', root ~ '/tasks/core31-media-protect.yml') | from_yaml }}"
+    hardware: "{{ lookup('ansible.builtin.file', root ~ '/vars/core31-observed-hardware.yml') | from_yaml }}"
+    task31: "{{ (catalog.tasks | selectattr('name', 'equalto', '31-CORE Recreate + Import — подготовка') | list)[0] }}"
+  tasks:
+    - name: Only audit and explicit protection are selectable
+      ansible.builtin.assert:
+        that:
+          - task31.playbook == 'playbooks/core-media-recreate.yml'
+          - task31.survey_vars[0].default_value == 'audit'
+          - task31.survey_vars[0]['values'] | map(attribute='value') | list == ['audit','protect']
+          - "'core-resource-standard-assert.yml' in (playbook | to_json)"
+          - "'core31-media-recreate-preflight.yml' in (playbook | to_json)"
+          - "'core31-media-protect.yml' in (playbook | to_json)"
+          - "'CORE31_UNSUPPORTED_OR_DESTRUCTIVE_ACTION_REFUSED' in (playbook | to_json)"
+
+    - name: Preflight requires exact protected VM, ZFS, PBS and credentials
+      ansible.builtin.assert:
+        that:
+          - "'protection: 1' in (audit | to_json)"
+          - "'hostpci0' in (audit | to_json)"
+          - "'hostpci1' in (audit | to_json)"
+          - "'core31_hardware.pool_guid' in (audit | to_json)"
+          - "'core31_hardware.sata_serial' in (audit | to_json)"
+          - "'core31-observed-hardware.yml' in (playbook | to_json)"
+          - hardware.core31_hardware.pool_guid == '18293847766285774524'
+          - hardware.core31_hardware.sata_serial == 'PK1331PAGH7VHS'
+          - "'serzhan-pool' in (audit | to_json)"
+          - "'pbs-core' in (audit | to_json)"
+          - "'pbs-serzhan' in (audit | to_json)"
+          - "'token.shadow' in (audit | to_json)"
+          - "'73014444032' in (audit | to_json)"
+          - "'changed_when: true' not in (audit | to_json)"
+          - "'NOT_IMPLEMENTED_DO_NOT_DESTROY_VM' in (audit | to_json)"
+
+    - name: Protection exports secrets root-only and backs up only the native VM disk
+      ansible.builtin.assert:
+        that:
+          - "'vzdump' in (protect | to_json)"
+          - "'--mode' in (protect | to_json)"
+          - "'snapshot' in (protect | to_json)"
+          - "'/var/lib/vz/dump' in (protect | to_json)"
+          - "'core31-recreate' in (protect | to_json)"
+          - "'etc/proxmox-backup' in (protect | to_json)"
+          - "'root/.digitalhouses/core50' in (protect | to_json)"
+          - "'guest-state' in (protect | to_json)"
+          - "'zstd' in (protect | to_json)"
+          - "'sha256sum' in (protect | to_json)"
+          - "'qm destroy' not in (protect | to_json)"
+          - "'qm stop' not in (protect | to_json)"
+          - "'zpool destroy' not in (protect | to_json)"
+          - "'wipefs' not in (protect | to_json)"

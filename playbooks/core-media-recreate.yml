@@ -1,0 +1,71 @@
+---
+# CORE-only recovery preparation for VM2243, NOT a destructive rebuild.
+# Actual Recreate+Import will be added only after a validated restore plan.
+- name: "31 | Pin CORE runner identity before disaster-recovery preparation"
+  hosts: runner
+  connection: local
+  gather_facts: false
+  vars_files:
+    - /etc/digitalhouses/pve.yml
+    - ../vars/core-resource-standard.yml
+  vars:
+    core31_action: "{{ DH_CORE31_ACTION | default('audit', true) }}"
+  tasks:
+    - name: Refuse unrelated sites and any unimplemented destructive action
+      ansible.builtin.assert:
+        that:
+          - core31_action in ['audit', 'protect']
+          - pve.ipv4 == '192.168.11.240'
+          - pve.node | length > 0
+        fail_msg: CORE31_UNSUPPORTED_OR_DESTRUCTIVE_ACTION_REFUSED
+
+    - name: Require canonical CORE bootstrap identity and numbering
+      ansible.builtin.include_tasks: ../tasks/core-resource-standard-assert.yml
+
+    - name: Register only the existing trusted CORE PVE via Semaphore
+      ansible.builtin.add_host:
+        name: core31_pve
+        groups: core31_pve_group
+        ansible_host: "{{ pve.ipv4 }}"
+        ansible_user: root
+        ansible_connection: ssh
+        ansible_python_interpreter: /usr/bin/python3
+        ansible_ssh_private_key_file: /var/lib/semaphore/.ssh/id_ed25519
+        ansible_ssh_common_args: >-
+          -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes
+          -o UserKnownHostsFile=/var/lib/semaphore/.ssh/known_hosts
+        core31_pve_ip: "{{ pve.ipv4 }}"
+        core31_pve_node: "{{ pve.node }}"
+        core31_action: "{{ core31_action }}"
+      changed_when: false
+
+- name: "31 | Preflight CORE VM2243 rollback and preserved ZFS"
+  hosts: core31_pve_group
+  gather_facts: false
+  vars_files:
+    - ../vars/core-resource-standard.yml
+    - ../vars/core31-observed-hardware.yml
+  vars:
+    core31_expected_media_ip: >-
+      {{ (core31_pve_ip.split('.')[:3] + [core_resource_standard.media_octet | string]) | join('.') }}
+  tasks:
+    - name: Verify actual pinned CORE PVE hostname
+      ansible.builtin.command:
+        argv: [hostname, -s]
+      register: core31_hostname
+      changed_when: false
+
+    - name: Refuse foreign PVE before reading guest state
+      ansible.builtin.assert:
+        that:
+          - core31_hostname.stdout | trim == core31_pve_node
+          - core_media_vmid | int == 2243
+          - core31_expected_media_ip == '192.168.11.243'
+        fail_msg: CORE31_WRONG_PVE_OR_IP_MAPPING
+
+    - name: Inspect guest, two PBS datastores and backup prerequisites safely
+      ansible.builtin.include_tasks: ../tasks/core31-media-recreate-preflight.yml
+
+    - name: Protect boot disk and guest credentials only on explicit action
+      ansible.builtin.include_tasks: ../tasks/core31-media-protect.yml
+      when: core31_action == 'protect'
