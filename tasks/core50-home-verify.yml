@@ -143,7 +143,7 @@
       - core50_verify_clock.rc == 0
       - (core50_verify_clock.stdout | from_json).exitcode | int == 0
       - not ((core50_verify_clock.stdout | from_json)['out-truncated'] | default(false) | bool)
-      - (core50_verify_clock.stdout | from_json)['out-data'] | trim is match('^[0-9]{10,})
+      - (core50_verify_clock.stdout | from_json)['out-data'] | trim is match('^[0-9]{10,}$')
     fail_msg: CORE50_VERIFY_GUEST_CLOCK_UNAVAILABLE
 
 - name: Save start boundary to identify this run rather than a historical success
@@ -195,7 +195,7 @@
          | selectattr('worker_type', 'defined')
          | selectattr('worker_type', 'match', '^verif')
          | selectattr('worker_id', 'defined')
-         | selectattr('worker_id', 'search', '(^|:)core50-serzhan-home)
+         | selectattr('worker_id', 'search', '(^|:)core50-serzhan-home$')
          | selectattr('starttime', 'ge', core50_verify_started_not_before | int)
          | sort(attribute='starttime', reverse=true) | list }}
 
