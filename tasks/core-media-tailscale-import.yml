@@ -56,6 +56,11 @@
     argv: [tailscale, status, --json]
   register: core_media_tailscale_state
   changed_when: false
+  retries: 24
+  delay: 5
+  until: >-
+    core_media_tailscale_state.rc == 0 and
+    (core_media_tailscale_state.stdout | from_json).BackendState == 'Running'
 
 - name: Require already-authorized CORE tailnet identity
   ansible.builtin.assert:
