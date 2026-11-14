@@ -10,6 +10,7 @@
     audit: "{{ lookup('ansible.builtin.file', root ~ '/tasks/core31-media-recreate-preflight.yml') | from_yaml }}"
     protect: "{{ lookup('ansible.builtin.file', root ~ '/tasks/core31-media-protect.yml') | from_yaml }}"
     rebuild: "{{ lookup('ansible.builtin.file', root ~ '/tasks/core31-media-recreate-import.yml') | from_yaml }}"
+    resume: "{{ lookup('ansible.builtin.file', root ~ '/tasks/core31-resume-stopped-preflight.yml') | from_yaml }}"
     hardware: "{{ lookup('ansible.builtin.file', root ~ '/vars/core31-observed-hardware.yml') | from_yaml }}"
     task31: "{{ (catalog.tasks | selectattr('name', 'equalto', '31-CORE Recreate + Import — подготовка') | list)[0] }}"
     zpool_probe: "{{ (audit | selectattr('name', 'equalto', 'Confirm actual preserved ZFS pool identity and health through QGA') | first) }}"
@@ -84,3 +85,15 @@
           - "'wipefs' not in (rebuild | to_json)"
           - "'sgdisk' not in (rebuild | to_json)"
           - "'VM2242' not in (rebuild | to_json)"
+
+    - name: Require exact stopped-state continuation without unsafe guest preflight
+      ansible.builtin.assert:
+        that:
+          - "'core31_initial_vm_status' in (playbook | to_json)"
+          - "'core31_resume_stopped' in (playbook | to_json)"
+          - "'core31-resume-stopped-preflight.yml' in (playbook | to_json)"
+          - "'CORE31_RESUME_REFUSED_FOREIGN_OR_MODIFIED_VM' in (resume | to_json)"
+          - "'core31_boot_archives' in (resume | to_json)"
+          - "'CORE31_RESTORED_PBS_TLS_CERTIFICATE_INVALID' in (rebuild | to_json)"
+          - >-
+            (rebuild | selectattr('ansible.builtin.assert', 'defined') | map(attribute='ansible.builtin.assert') | map(attribute='that') | flatten | reject('string') | list | length) == 0
