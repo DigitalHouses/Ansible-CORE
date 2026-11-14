@@ -94,3 +94,37 @@ reprovisioning/restore-контракта и теста отката ни оди
 удалять `pbs-serzhan`, менять CORE PBS TLS fingerprint/токены,
 включать автоматический Prune/GC, выполнять `erase`,
 запускать bootstrap на уже действующем CORE.
+
+
+## Live CORE protection acceptance — 14.11.2026
+
+- CORE №00 Job **#104** registered the new №31 Semaphore template, ID **7**.
+- №31 `audit` Job **#109**: `success changed=0 failed=0`.
+  Exact VMID, .243, GPU/SATA passthrough, drive serial
+  `PK1331PAGH7VHS`, ZFS GUID `18293847766285774524`,
+  `pbs-core`, `pbs-serzhan`, rootfs credentials all passed.
+- №31 `protect` Job **#112**: **success**;
+  runner `ok=4 changed=0 failed=0`,
+  CORE PVE `ok=34 changed=4 failed=0`.
+- Native PVE rollback archive:
+  `/var/lib/vz/dump/vzdump-qemu-2243-2026_11_14-11_15_11.vma.zst`,
+  **4,855,813,871 bytes**, `root:root 0600`, alongside
+  matching `.sha256`; `zstd -t` passed.
+- Preserved guest ZFS secret/app-state archive:
+  `/serzhan-pool/digitalhouses/core31-recreate/guest-state-20261114T061448Z.tar.gz`,
+  **281,750,224 bytes**, `root:root 0600`, directory
+  `root:root 0700`. Its `.sha256` verified independently and
+  `tar -tzf` showed required PBS configuration, token files and
+  application state paths.
+- PVE checksum `sha256sum -c` independently returned **OK**; PBS
+  services remained `active`; ZFS pool remained `ONLINE` with
+  unchanged GUID; VM2243 remained `running`.
+- Safely resolved pilot issues without destructive action:
+  `-o name,health,guid` argv quoting, YAML Bash array, and removal
+  of inherited ZFS directory setgid bit. All changes merged in
+  Ansible-CORE PRs **#11–#16**.
+
+**Acceptance boundary:** these are intact *hot* checkpoints,
+**not** proof of cold/offline consistency, standalone system rebuild,
+disk-loss DR, or a successful VM restore. Full Recreate + Import
+remains blocked by the missing CORE native fresh-provisioning workflow.
