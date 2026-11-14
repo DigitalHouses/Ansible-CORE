@@ -54,6 +54,7 @@
           - "'/var/lib/vz/dump' in (protect | to_json)"
           - "'core31-recreate' in (protect | to_json)"
           - "'chmod 0700' in (protect | to_json)"
+          - "'chmod g-s' in (protect | to_json)"
           - "'root:root:700' in (protect | to_json)"
           - "'etc/proxmox-backup' in (protect | to_json)"
           - "'root/.digitalhouses/core50' in (protect | to_json)"
