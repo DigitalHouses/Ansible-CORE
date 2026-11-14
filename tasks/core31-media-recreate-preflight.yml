@@ -18,9 +18,9 @@
       - >-
         core31_vm_config.stdout is search('(?m)^scsi0: local-lvm:vm-2243-disk-0,')
       - >-
-        core31_vm_config.stdout is search('(?m)^hostpci0: ')
+        core31_vm_config.stdout is search('(?m)^hostpci0: ' ~ (core31_hardware.gpu_hostpci | regex_escape) ~ ',')
       - >-
-        core31_vm_config.stdout is search('(?m)^hostpci1: ')
+        core31_vm_config.stdout is search('(?m)^hostpci1: ' ~ (core31_hardware.sata_hostpci | regex_escape) ~ ',')
       - >-
         core31_vm_config.stdout is search('(?m)^protection: 1$')
       - >-
@@ -70,7 +70,34 @@
       - >-
         ((core31_zpool_raw.stdout | from_json)['out-data'] | trim)
         is match('^serzhan-pool\\s+ONLINE\\s+[0-9]+$')
+      - >-
+        (((core31_zpool_raw.stdout | from_json)['out-data'] | trim).split() | last)
+        == core31_hardware.pool_guid
     fail_msg: CORE31_ZFS_POOL_NOT_HEALTHY_OR_NOT_UNIQUE
+
+- name: Read exact passed-through SATA disk serial and ZFS member identity
+  ansible.builtin.command:
+    argv:
+      - qm
+      - guest
+      - exec
+      - "{{ core_media_vmid | string }}"
+      - --
+      - /bin/bash
+      - -lc
+      - >-
+        lsblk -dn -o NAME,SERIAL
+        | awk '$1 == "sdb" { print $2 }'
+  register: core31_sata_serial_raw
+  changed_when: false
+
+- name: Pin ZFS SATA device to the approved CORE physical disk
+  ansible.builtin.assert:
+    that:
+      - core31_sata_serial_raw.rc == 0
+      - (core31_sata_serial_raw.stdout | from_json).exitcode | int == 0
+      - (core31_sata_serial_raw.stdout | from_json)['out-data'] | trim == core31_hardware.sata_serial
+    fail_msg: CORE31_SATA_DRIVE_SERIAL_MISMATCH
 
 - name: Read PBS datastore names and paths without tokens
   ansible.builtin.command:
@@ -166,7 +193,9 @@
       - "CORE31_VM_IP={{ core31_expected_media_ip }}"
       - CORE31_EXPECTED_CANONICAL_NAME=mediaserver-dh-core
       - CORE31_PCI_PASSTHROUGH=GPU_AND_SATA_PRESENT
-      - CORE31_ZFS_POOL=serzhan-pool/ONLINE
+      - "CORE31_ZFS_POOL={{ core31_hardware.pool_name }}/ONLINE"
+      - "CORE31_ZFS_GUID={{ core31_hardware.pool_guid }}"
+      - "CORE31_SATA_SERIAL={{ core31_hardware.sata_serial }}"
       - CORE31_PBS_DATASTORES=pbs-core,pbs-serzhan
       - CORE31_ROOTFS_PBS_CREDENTIALS=NEED_PRESERVATION
       - "CORE31_EXISTING_NVME_BOOT_BACKUPS={{ core31_boot_archives.matched }}"
