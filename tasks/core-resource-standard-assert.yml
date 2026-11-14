@@ -1,0 +1,29 @@
+---
+# Shared immutable resource identity gate for CORE runner actions.
+# Does not contact the hypervisor or modify any guest.
+- name: Require CORE bootstrap identity and canonical Proxmox allocation rules
+  ansible.builtin.assert:
+    that:
+      - core_resource_standard.profile == 'core'
+      - core_resource_standard.site_id == 'dh-core'
+      - (lookup('ansible.builtin.file', '/etc/digitalhouses/site-profile') | trim) == core_resource_standard.profile
+      - (lookup('ansible.builtin.file', '/etc/digitalhouses/site-id') | trim) == core_resource_standard.site_id
+      - (pve.ipv4.split('.') | length) == 4
+      - (pve.ipv4.split('.')[3] | int) == (core_resource_standard.pve_octet | int)
+      - (core_resource_standard.pve_octet | int) == 240
+      - (core_resource_standard.ansible_octet | int) == (core_resource_standard.pve_octet | int) + 1
+      - (core_resource_standard.ha_octet | int) == (core_resource_standard.pve_octet | int) + 2
+      - (core_resource_standard.media_octet | int) == (core_resource_standard.pve_octet | int) + 3
+      - (core_resource_standard.postgres_octet | int) == (core_resource_standard.pve_octet | int) + 4
+      - (core_ansible_ctid | int) == (core_resource_standard.ct_offset | int) + (core_resource_standard.ansible_octet | int)
+      - (core_ha_vmid | int) == (core_resource_standard.vm_offset | int) + (core_resource_standard.ha_octet | int)
+      - (core_media_vmid | int) == (core_resource_standard.vm_offset | int) + (core_resource_standard.media_octet | int)
+      - (core_postgres_ctid | int) == (core_resource_standard.ct_offset | int) + (core_resource_standard.postgres_octet | int)
+      - (core_resource_standard.ct_offset | int) == 1000
+      - (core_resource_standard.vm_offset | int) == 2000
+      - (core_ansible_ctid | int) == 1241
+      - (core_ha_vmid | int) == 2242
+      - (core_media_vmid | int) == 2243
+      - (core_postgres_ctid | int) == 1244
+      - core_resource_standard.media_vm_name == 'mediaserver-' ~ core_resource_standard.site_id
+    fail_msg: CORE_RESOURCE_STANDARD_DRIFT
