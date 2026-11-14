@@ -14,7 +14,7 @@
     - name: Refuse unrelated sites and any unimplemented destructive action
       ansible.builtin.assert:
         that:
-          - core31_action in ['audit', 'protect']
+          - core31_action in ['audit', 'protect', 'recreate-import']
           - pve.ipv4 == '192.168.11.240'
           - pve.node | length > 0
         fail_msg: CORE31_UNSUPPORTED_OR_DESTRUCTIVE_ACTION_REFUSED
@@ -69,3 +69,7 @@
     - name: Protect boot disk and guest credentials only on explicit action
       ansible.builtin.include_tasks: ../tasks/core31-media-protect.yml
       when: core31_action == 'protect'
+
+    - name: Recreate only CORE VM2243 and import its existing ZFS data
+      ansible.builtin.include_tasks: ../tasks/core31-media-recreate-import.yml
+      when: core31_action == 'recreate-import'
