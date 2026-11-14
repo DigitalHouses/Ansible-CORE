@@ -1,0 +1,30 @@
+---
+- name: Test read-only CORE40 legacy PBS audit
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    project_root: "{{ playbook_dir | dirname }}"
+    core40_playbook: "{{ lookup('ansible.builtin.file', project_root ~ '/playbooks/core-pbs.yml') | from_yaml }}"
+    audit_tasks: "{{ lookup('ansible.builtin.file', project_root ~ '/tasks/core40-legacy-pbs-audit.yml') | from_yaml }}"
+    command_tasks: "{{ audit_tasks | selectattr('changed_when', 'defined') | list }}"
+    audit_include: "{{ (core40_playbook[1].tasks | selectattr('name', 'equalto', 'Audit legacy CORE PVE PBS storage mapping and scheduled dependencies') | first) }}"
+  tasks:
+    - name: Require audit included only for read-only CORE40 action
+      ansible.builtin.assert:
+        that:
+          - "'../tasks/core40-legacy-pbs-audit.yml' in (core40_playbook | to_json)"
+          - >-
+            audit_include.when == "core40_action == 'audit'"
+
+    - name: Require native read-only PVE and PBS commands
+      ansible.builtin.assert:
+        that:
+          - command_tasks | length == 4
+          - command_tasks | selectattr('changed_when', 'equalto', false) | list | length == 4
+          - audit_tasks | length == 9
+          - "'/storage' in (audit_tasks | to_json)"
+          - "'/cluster/backup' in (audit_tasks | to_json)"
+          - "'datastore' in (audit_tasks | to_json)"
+          - "'index.json.blob' in (audit_tasks | to_json)"
+          - "'CORE40_LEGACY_CLEANUP=NOT_PERFORMED' in (audit_tasks | to_json)"
