@@ -26,7 +26,11 @@
         root=/serzhan-pool/digitalhouses/core31-recreate
         [ ! -L "$root" ] || exit 11
         install -d -m 0700 "$root"
-        [ "$(stat -c %a "$root")" = 700 ] || exit 12
+        # The parent ZFS share may carry setgid; explicitly remove it
+        # so credentials never inherit group access from SMB policy.
+        chown root:root "$root"
+        chmod 0700 "$root"
+        [ "$(stat -c %U:%G:%a "$root")" = root:root:700 ] || exit 12
         timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
         archive="$root/guest-state-$timestamp.tar.gz"
         paths=(
