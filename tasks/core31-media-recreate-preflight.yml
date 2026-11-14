@@ -15,11 +15,16 @@
         core31_vm_config.stdout is search('(?m)^name: (mediaserver-serzhan|mediaserver-dh-core)$')
       - >-
         core31_vm_config.stdout is search('(?m)^ipconfig0: ip=' ~ (core31_expected_media_ip | regex_escape) ~ '/24,gw=')
-      - core31_vm_config.stdout is search('(?m)^scsi0: local-lvm:vm-2243-disk-0,')
-      - core31_vm_config.stdout is search('(?m)^hostpci0: ')
-      - core31_vm_config.stdout is search('(?m)^hostpci1: ')
-      - core31_vm_config.stdout is search('(?m)^protection: 1$')
-      - core31_vm_config.stdout is search('(?m)^agent: enabled=1$')
+      - >-
+        core31_vm_config.stdout is search('(?m)^scsi0: local-lvm:vm-2243-disk-0,')
+      - >-
+        core31_vm_config.stdout is search('(?m)^hostpci0: ')
+      - >-
+        core31_vm_config.stdout is search('(?m)^hostpci1: ')
+      - >-
+        core31_vm_config.stdout is search('(?m)^protection: 1$')
+      - >-
+        core31_vm_config.stdout is search('(?m)^agent: enabled=1$')
     fail_msg: CORE31_EXISTING_GUEST_HARDWARE_OR_IDENTITY_MISMATCH
 
 - name: Require the existing CORE PBS VM is still online
@@ -27,7 +32,8 @@
     argv: [qm, status, "{{ core_media_vmid | string }}"]
   register: core31_vm_status
   changed_when: false
-  failed_when: core31_vm_status.stdout | trim != 'status: running'
+  failed_when: >-
+    core31_vm_status.stdout | trim != 'status: running'
 
 - name: Read native PVE backup jobs and the VM self-backup exclusion
   ansible.builtin.command:
