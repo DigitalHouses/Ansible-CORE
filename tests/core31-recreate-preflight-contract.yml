@@ -9,6 +9,7 @@
     playbook: "{{ lookup('ansible.builtin.file', root ~ '/playbooks/core-media-recreate.yml') | from_yaml }}"
     audit: "{{ lookup('ansible.builtin.file', root ~ '/tasks/core31-media-recreate-preflight.yml') | from_yaml }}"
     protect: "{{ lookup('ansible.builtin.file', root ~ '/tasks/core31-media-protect.yml') | from_yaml }}"
+    hardware: "{{ lookup('ansible.builtin.file', root ~ '/vars/core31-observed-hardware.yml') | from_yaml }}"
     task31: "{{ (catalog.tasks | selectattr('name', 'equalto', '31-CORE Recreate + Import — подготовка') | list)[0] }}"
   tasks:
     - name: Only audit and explicit protection are selectable
@@ -28,6 +29,11 @@
           - "'protection: 1' in (audit | to_json)"
           - "'hostpci0' in (audit | to_json)"
           - "'hostpci1' in (audit | to_json)"
+          - "'core31_hardware.pool_guid' in (audit | to_json)"
+          - "'core31_hardware.sata_serial' in (audit | to_json)"
+          - "'core31-observed-hardware.yml' in (playbook | to_json)"
+          - hardware.core31_hardware.pool_guid == '18293847766285774524'
+          - hardware.core31_hardware.sata_serial == 'PK1331PAGH7VHS'
           - "'serzhan-pool' in (audit | to_json)"
           - "'pbs-core' in (audit | to_json)"
           - "'pbs-serzhan' in (audit | to_json)"
