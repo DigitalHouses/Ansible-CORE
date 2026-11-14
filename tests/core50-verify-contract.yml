@@ -12,6 +12,8 @@
     actions: "{{ core50.survey_vars[0]['values'] | map(attribute='value') | list }}"
     verify_config: "{{ verify_tasks | selectattr('name','search','manual namespace-only Verify job') | first }}"
     verify_run: "{{ verify_tasks | selectattr('name','search','Start and wait for native CORE PBS Verify') | first }}"
+    worker_history: "{{ verify_tasks | selectattr('name','search','Read the completed PBS worker history') | first }}"
+    worker_accept: "{{ verify_tasks | selectattr('name','search','Require this Verify worker finished successfully') | first }}"
   tasks:
     - name: Require clear manual 03 action without replacing CORE50 audit or prepare
       ansible.builtin.assert:
@@ -38,5 +40,10 @@
           - "'verify-job' in verify_run['ansible.builtin.command'].argv"
           - "'run' in verify_run['ansible.builtin.command'].argv"
           - "'core50-serzhan-home' in verify_run['ansible.builtin.command'].argv"
+          - "'task' in worker_history['ansible.builtin.command'].argv"
+          - "'list' in worker_history['ansible.builtin.command'].argv"
+          - "'--all' in worker_history['ansible.builtin.command'].argv"
+          - "'CORE50_VERIFY_WORKER_MISSING_RUNNING_OR_FAILED' in (worker_accept | to_json)"
+          - "'TASK OK' not in (verify_run.failed_when | to_json)"
           - "'prune' not in (verify_tasks | to_json)"
           - "'gc' not in (verify_tasks | to_json)"

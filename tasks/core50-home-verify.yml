@@ -131,6 +131,25 @@
         (((core50_verify_config.stdout | from_json)['out-data']) | from_json).schedule | default('', true) == ''
     fail_msg: CORE50_VERIFY_JOB_READBACK_FAILED
 
+- name: Capture PBS guest time before starting the exact manual Verify
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, date, '+%s']
+  register: core50_verify_clock
+  changed_when: false
+
+- name: Require trustworthy PBS clock and QGA response
+  ansible.builtin.assert:
+    that:
+      - core50_verify_clock.rc == 0
+      - (core50_verify_clock.stdout | from_json).exitcode | int == 0
+      - not ((core50_verify_clock.stdout | from_json)['out-truncated'] | default(false) | bool)
+      - (core50_verify_clock.stdout | from_json)['out-data'] | trim is match('^[0-9]{10,})
+    fail_msg: CORE50_VERIFY_GUEST_CLOCK_UNAVAILABLE
+
+- name: Save start boundary to identify this run rather than a historical success
+  ansible.builtin.set_fact:
+    core50_verify_started_not_before: "{{ ((core50_verify_clock.stdout | from_json)['out-data'] | trim | int) - 2 }}"
+
 - name: Start and wait for native CORE PBS Verify for this namespace only
   ansible.builtin.command:
     argv:
@@ -147,12 +166,46 @@
       - core50-serzhan-home
   register: core50_verify_run
   changed_when: true
+  # The PBS CLI may truncate its long stdout through QGA. Do not require a
+  # literal TASK OK inside that transport buffer; read the native worker state.
   failed_when: >-
     core50_verify_run.rc != 0 or
-    (core50_verify_run.stdout | default('{}', true) | from_json).get('exitcode', 1) | int != 0 or
-    'TASK OK' not in
-    (core50_verify_run.stdout | default('{}', true) | from_json).get('out-data', '')
+    (core50_verify_run.stdout | default('{}', true) | from_json).get('exitcode', 1) | int != 0
   no_log: true
+
+- name: Read the completed PBS worker history through native manager
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, proxmox-backup-manager, task, list, --all, 'true', --limit, '40', --output-format, json]
+  register: core50_verify_task_history
+  changed_when: false
+
+- name: Require complete native task-history readback
+  ansible.builtin.assert:
+    that:
+      - core50_verify_task_history.rc == 0
+      - (core50_verify_task_history.stdout | from_json).exitcode | int == 0
+      - not ((core50_verify_task_history.stdout | from_json)['out-truncated'] | default(false) | bool)
+      - (core50_verify_task_history.stdout | from_json)['out-data'] | trim is match('^\\[')
+    fail_msg: CORE50_VERIFY_TASK_HISTORY_UNAVAILABLE
+
+- name: Find only this job's newest verification worker started after our boundary
+  ansible.builtin.set_fact:
+    core50_verify_task_matches: >-
+      {{ (((core50_verify_task_history.stdout | from_json)['out-data']) | from_json)
+         | selectattr('worker_type', 'defined')
+         | selectattr('worker_type', 'match', '^verif')
+         | selectattr('worker_id', 'defined')
+         | selectattr('worker_id', 'search', '(^|:)core50-serzhan-home)
+         | selectattr('starttime', 'ge', core50_verify_started_not_before | int)
+         | sort(attribute='starttime', reverse=true) | list }}
+
+- name: Require this Verify worker finished successfully, not merely its CLI launcher
+  ansible.builtin.assert:
+    that:
+      - core50_verify_task_matches | length > 0
+      - core50_verify_task_matches[0].endtime is defined
+      - core50_verify_task_matches[0].status | default('') == 'OK'
+    fail_msg: CORE50_VERIFY_WORKER_MISSING_RUNNING_OR_FAILED
 
 - name: Report accepted CORE PBS Verify outcome without exposing task secrets
   ansible.builtin.debug:
@@ -162,5 +215,6 @@
       - "CORE50_VERIFY_SOURCE_SNAPSHOTS={{ core50_verify_snapshot_paths | length }}"
       - CORE50_VERIFY_JOB=core50-serzhan-home
       - CORE50_VERIFY_SCHEDULE=NONE
-      - CORE50_VERIFY_MANUAL_RUN=TASK_OK
+      - "CORE50_VERIFY_WORKER={{ core50_verify_task_matches[0].upid }}"
+      - "CORE50_VERIFY_WORKER_STATUS={{ core50_verify_task_matches[0].status }}"
       - CORE50_NEXT=TEST_RESTORE_IN_SEPARATE_VMID
