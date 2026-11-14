@@ -14,6 +14,7 @@
     pbs: "{{ lookup('ansible.builtin.file', root ~ '/tasks/core-media-pbs-import.yml') }}"
     catalog: "{{ lookup('ansible.builtin.file', root ~ '/catalog/tasks.yml') | from_yaml }}"
     pbs_identity: "{{ lookup('ansible.builtin.file', root ~ '/tasks/core-media-pbs-import.yml') | from_yaml }}"
+    tailscale_tasks: "{{ lookup('ansible.builtin.file', root ~ '/tasks/core-media-tailscale-import.yml') | from_yaml }}"
     item31: "{{ (catalog.tasks | selectattr('name', 'equalto', '31-CORE Media/PBS — Create/Recreate + Import') | list) | first }}"
   tasks:
     - name: Pin CORE addressing, guest IDs, original SATA and ZFS
@@ -68,3 +69,14 @@
           - >-
             (pbs_identity | selectattr('name', 'equalto', 'Verify preserved PBS identity and credentials archive checksum') | first).args.chdir
             == '/serzhan-pool/digitalhouses/core31-recreate'
+
+    - name: Require bounded Tailscale machine identity recovery after fresh guest boot
+      ansible.builtin.assert:
+        that:
+          - >-
+            (tailscale_tasks | selectattr('name', 'equalto', 'Verify recovered CORE tailnet is connected without re-authentication')
+             | first).retries == 24
+          - >-
+            (tailscale_tasks | selectattr('name', 'equalto', 'Verify recovered CORE tailnet is connected without re-authentication')
+             | first).delay == 5
+          - "'BackendState' in (tailscale_tasks | to_json)"
