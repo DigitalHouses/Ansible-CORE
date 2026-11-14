@@ -87,6 +87,10 @@
       ansible.builtin.include_tasks: ../tasks/core40-pbs-datastore.yml
       when: core40_action == 'prepare'
 
+    - name: Audit legacy CORE PVE PBS storage mapping and scheduled dependencies
+      ansible.builtin.include_tasks: ../tasks/core40-legacy-pbs-audit.yml
+      when: core40_action == 'audit'
+
     - name: Report CORE inventory without touching WARP, backups or datasets
       ansible.builtin.debug:
         msg:
