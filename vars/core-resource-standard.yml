@@ -12,8 +12,13 @@ core_resource_standard:
   postgres_octet: 244
   vm_offset: 2000
   ct_offset: 1000
-  media_vm_name: mediaserver-dh-core
-  media_legacy_vm_name: mediaserver-serzhan
+  # Proxmox guest display names. Site ID and internal OS hostnames stay lowercase.
+  ansible_ct_name: ansible-CORE
+  ha_vm_name: haos-CORE
+  media_vm_name: mediaserver-CORE
+  postgres_ct_name: postgresql-CORE
+  media_legacy_vm_name: mediaserver-dh-core
+  media_older_vm_name: mediaserver-serzhan
 
 core_ansible_ctid: "{{ (core_resource_standard.ct_offset | int) + (core_resource_standard.ansible_octet | int) }}"
 core_ha_vmid: "{{ (core_resource_standard.vm_offset | int) + (core_resource_standard.ha_octet | int) }}"

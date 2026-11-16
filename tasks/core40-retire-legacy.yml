@@ -20,7 +20,7 @@
   ansible.builtin.assert:
     that:
       - core40_media_standard | length == 1
-      - core40_media_standard[0].name == 'mediaserver-dh-core'
+      - core40_media_standard[0].name in [core_resource_standard.media_vm_name, core_resource_standard.media_legacy_vm_name]
       - core40_cutover_old_jobs | length <= 1
       - core40_cutover_new_jobs | length <= 1
       - (core40_cutover_old_jobs | length) + (core40_cutover_new_jobs | length) >= 1

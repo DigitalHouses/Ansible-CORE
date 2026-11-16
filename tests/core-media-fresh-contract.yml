@@ -24,7 +24,8 @@
       ansible.builtin.assert:
         that:
           - core_media_site.id == 'dh-core'
-          - core_media_spec.name == 'mediaserver-dh-core'
+          - core_media_spec.name == 'mediaserver-CORE'
+          - core_media_spec.os_hostname == 'mediaserver-dh-core'
           - core_media_spec.vmid == 2243
           - core_media_spec.network.ipv4 == '192.168.11.243/24'
           - core_media_spec.storage.pool_name == 'serzhan-pool'
@@ -43,6 +44,7 @@
           - "'debian-13-generic-amd64.qcow2' in image"
           - "'SHA512SUMS' in image"
           - "'qm' in (vm | to_json) and 'create' in (vm | to_json)"
+          - "'os_hostname | default(media_vm.name)' in (lookup('ansible.builtin.file', root ~ '/tasks/media-vm-apply.yml'))"
           - "'importdisk' in (vm | to_json)"
           - "'media30-image-prestage.yml' in (clean | to_json)"
           - "'media-vm-apply.yml' in (clean | to_json)"

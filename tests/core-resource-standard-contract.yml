@@ -37,7 +37,10 @@
           - "'PVE_OCTET=240' in bootstrap"
           - "'RUNNER_OCTET=241' in bootstrap"
           - "'CTID=\"' in bootstrap"
-          - core_resource_standard.media_vm_name == 'mediaserver-dh-core'
+          - core_resource_standard.media_vm_name == 'mediaserver-CORE'
+          - core_resource_standard.ansible_ct_name == 'ansible-CORE'
+          - core_resource_standard.ha_vm_name == 'haos-CORE'
+          - core_resource_standard.postgres_ct_name == 'postgresql-CORE'
 
     - name: Require standard preflight included in all CORE service playbooks
       ansible.builtin.assert:
@@ -57,6 +60,7 @@
         that:
           - "'core_resource_standard.media_vm_name' in (datastore | to_json)"
           - "'core_resource_standard.media_legacy_vm_name' in (datastore | to_json)"
+          - "'core_resource_standard.media_older_vm_name' in (datastore | to_json)"
           - "'core_resource_standard.media_octet' in (datastore | to_json)"
           - "'core_media_vmid | int' in (datastore | to_json)"
 
@@ -66,6 +70,7 @@
           - >-
             ('name: ' ~ core_resource_standard.media_vm_name) in core40_vm_config.stdout_lines
             or ('name: ' ~ core_resource_standard.media_legacy_vm_name) in core40_vm_config.stdout_lines
+            or ('name: ' ~ core_resource_standard.media_older_vm_name) in core40_vm_config.stdout_lines
           - >-
             ('ipconfig0: ip=' ~ (core40_pve_ipv4.split('.')[:3] | join('.'))
             ~ '.' ~ (core_resource_standard.media_octet | string)
@@ -83,6 +88,6 @@
       vars:
         core40_vm_config:
           stdout_lines:
-            - "name: mediaserver-dh-core"
+            - "name: mediaserver-CORE"
             - "agent: enabled=1"
             - "ipconfig0: ip=192.168.11.243/24,gw=192.168.11.1"

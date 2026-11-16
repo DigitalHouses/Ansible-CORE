@@ -31,7 +31,7 @@
 - name: Protect any existing VM from foreign ownership
   ansible.builtin.assert:
     that:
-      - media_vm_before.name | default('') == media_vm.name
+      - media_vm_before.name | default('') in ([media_vm.name] + (media_vm.legacy_names | default([])))
       - media_vm_before.description | default('') == 'DigitalHouses managed media guest v2'
       - media_vm_before.lock is not defined
     fail_msg: MEDIA_VM_FOREIGN_OR_LOCKED
@@ -306,7 +306,7 @@
     mode: '0644'
     content: |
       instance-id: dh-media-{{ media_vm.vmid }}-qga-v1
-      local-hostname: {{ media_vm.name }}
+      local-hostname: {{ media_vm.os_hostname | default(media_vm.name) }}
 
 - name: Inspect current cloud-init setting
   ansible.builtin.command:

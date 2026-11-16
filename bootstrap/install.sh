@@ -18,10 +18,11 @@ SITE=dh-core
 
 CTID="${DH_BOOTSTRAP_CTID:-$((1000 + RUNNER_OCTET))}"
 GIT_REF="${DH_BOOTSTRAP_REF:-main}"
-RUNNER_HOSTNAME="${DH_BOOTSTRAP_HOSTNAME:-ansible-$SITE}"
+RUNNER_HOSTNAME="${DH_BOOTSTRAP_HOSTNAME:-ansible-CORE}"
 PROTECTION="${DH_BOOTSTRAP_PROTECTION:-1}"
 [[ $CTID =~ ^[1-9][0-9]{2,5}$ && $GIT_REF =~ ^[a-zA-Z0-9._/-]+$ &&
-   $RUNNER_HOSTNAME =~ ^[a-z0-9][a-z0-9-]{0,62}$ &&
+   $RUNNER_HOSTNAME =~ ^[a-zA-Z0-9][a-zA-Z0-9-]{0,62}$ &&
+   $RUNNER_HOSTNAME == *-CORE &&
    $PROTECTION =~ ^[01]$ ]] || {
   echo 'BLOCKED: invalid CTID, Git ref or hostname' >&2; exit 2;
 }

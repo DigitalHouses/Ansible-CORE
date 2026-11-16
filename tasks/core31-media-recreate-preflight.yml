@@ -12,7 +12,7 @@
     that:
       - core31_vm_config.rc == 0
       - >-
-        core31_vm_config.stdout is search('(?m)^name: (mediaserver-serzhan|mediaserver-dh-core)$')
+        core31_vm_config.stdout is search('(?m)^name: (mediaserver-serzhan|mediaserver-dh-core|mediaserver-CORE)$')
       - >-
         core31_vm_config.stdout is search('(?m)^ipconfig0: ip=' ~ (core31_expected_media_ip | regex_escape) ~ '/24,gw=')
       - >-
@@ -192,7 +192,7 @@
       - CORE31_MODE=AUDIT
       - "CORE31_VM={{ core_media_vmid }}"
       - "CORE31_VM_IP={{ core31_expected_media_ip }}"
-      - CORE31_EXPECTED_CANONICAL_NAME=mediaserver-dh-core
+      - CORE31_EXPECTED_CANONICAL_NAME=mediaserver-CORE
       - CORE31_PCI_PASSTHROUGH=GPU_AND_SATA_PRESENT
       - "CORE31_ZFS_POOL={{ core31_hardware.pool_name }}/ONLINE"
       - "CORE31_ZFS_GUID={{ core31_hardware.pool_guid }}"

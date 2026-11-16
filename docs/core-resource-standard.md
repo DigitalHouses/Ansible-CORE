@@ -29,19 +29,28 @@ Source: `vars/core-resource-standard.yml`. The guard
 identity, CORE octet allocation and both ID formulas before CORE
 №30/№40/№50/№71 actions. It does not change any guest.
 
-## Media Server naming
+## CORE Proxmox guest display names
 
-Canonical CORE **PVE VM name** is `mediaserver-dh-core`:
-`mediaserver-` + CORE Site ID. CORE №30 checks the PVE `ipconfig0`
-address ends in `.243` and matches the computed VMID2243. It
-reports `CORE_MEDIA30_VM_NAME_STANDARD=CANONICAL` when the canonical
-name is observed.
+Every **new** CORE guest has the literal suffix `-CORE` (uppercase).
+The site ID `dh-core`, VMID/CTID, addresses, PBS namespaces and application
+identities remain unchanged.
 
-During the **pre-Recreate** transition, the existing VM2243 may still
-be named `mediaserver-serzhan`. CORE №30 and CORE №40 accept that
-specific historical name only as `LEGACY_RECREATE_PENDING` while still
-requiring the exact CORE VMID and IP. This is a compatibility exception,
-**not** the desired name for new builds.
+| Guest | ID | Canonical Proxmox label |
+| --- | ---: | --- |
+| Ansible / Semaphore | CT1241 | `ansible-CORE` |
+| Home Assistant | VM2242 | `haos-CORE` |
+| Media / PBS | VM2243 | `mediaserver-CORE` |
+| PostgreSQL | CT1244 | `postgresql-CORE` |
+
+The **OS hostname inside Media VM2243 stays `mediaserver-dh-core`**:
+cloud-init metadata uses a separate `os_hostname` field, never the display
+label. The original Proxmox labels `mediaserver-dh-core` and
+`mediaserver-serzhan` remain read-only accepted legacy identities so
+existing VM2243 can be checked without a recreate. CORE №30 `sync-name`
+changes only its PVE display name in place after ownership and IP checks.
+For new deployments, №31 creates VM2243 with `mediaserver-CORE` directly.
+For a new Semaphore CT, CORE bootstrap creates `ansible-CORE`; it does
+not rename any existing live LXC or alter another site's resources.
 
 ## Preserved existing data
 
@@ -60,5 +69,6 @@ read-only CORE №30 E2E or №40 infrastructure tasks. Before that
 phase, audit the physical passed-through disk and ZFS pool, independent
 backups of guest OS/application state and PBS credentials, and a safe
 restore path. Recreate must never use `erase` when preserving the
-existing pool. Update live PVE/guest naming only within that explicitly
-authorized lifecycle operation. Do not rerun bootstrap on a live CORE.
+existing pool. A PVE-only Media display-name correction is supported by №30 `sync-name`;
+no VM recreation is necessary. Existing LXC hostnames must not be renamed
+as a side effect of this policy. Do not rerun bootstrap on a live CORE.

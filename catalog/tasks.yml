@@ -26,6 +26,7 @@ tasks:
         values:
           - {name: "01 — Проверить весь CORE Media Server (только аудит)", value: audit}
           - {name: "02 — Исправить портал, nginx, HTTPS и cloud-init кеш по IP VM; E2E", value: repair-portal}
+          - {name: "03 — Обновить только PVE имя VM2243 на mediaserver-CORE (без остановки)", value: sync-name}
   - name: "31-CORE Media/PBS — Create/Recreate + Import"
     playbook: playbooks/core-media-fresh.yml
     description: "CORE VM2243: с нуля Debian 13, Plex/Jellyfin/Arr/qBit/SMB/PBS/Tailscale; только Import существующего serzhan-pool, без архивов ОС и стирания SATA."

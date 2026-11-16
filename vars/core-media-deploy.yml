@@ -3,7 +3,8 @@ core_media_site:
   id: dh-core
   owner_slug: serzhan
 core_media_spec:
-  name: mediaserver-dh-core
+  name: mediaserver-CORE
+  os_hostname: mediaserver-dh-core
   vmid: 2243
   network:
     bridge: vmbr0

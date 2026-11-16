@@ -13,7 +13,7 @@
     core31_action: "{{ DH_CORE31_ACTION | default('audit', true) }}"
     media_mode: "{{ 'apply' if core31_action == 'resume' else core31_action }}"
     media_site: "{{ core_media_site }}"
-    media_spec: "{{ core_media_spec }}"
+    media_spec: "{{ core_media_spec | combine({'legacy_names': [core_resource_standard.media_legacy_vm_name, core_resource_standard.media_older_vm_name]}) }}"
     media_disk_action: import
     media_root_password: "{{ DH_CORE_MEDIA_ROOT_PASSWORD | default(lookup('ansible.builtin.env', 'DH_CORE_MEDIA_ROOT_PASSWORD'), true) }}"
   tasks:
@@ -27,7 +27,8 @@
           - pve.ipv4 == '192.168.11.240'
           - media_spec.vmid | int == 2243
           - media_spec.network.ipv4 == '192.168.11.243/24'
-          - media_spec.name == 'mediaserver-dh-core'
+          - media_spec.name == core_resource_standard.media_vm_name
+          - media_spec.os_hostname == 'mediaserver-dh-core'
           - media_spec.storage.pool_name == 'serzhan-pool'
           - media_spec.storage.import_pool_guid == '18293847766285774524'
         fail_msg: CORE31_FRESH_PROFILE_OR_IMPORT_IDENTITY_INVALID
@@ -128,7 +129,7 @@
     - name: Verify existing VM belongs to the selected site
       ansible.builtin.assert:
         that:
-          - media_current_vm.name | default('') == media_spec.name
+          - media_current_vm.name | default('') in [media_spec.name, core_resource_standard.media_legacy_vm_name, core_resource_standard.media_older_vm_name]
         fail_msg: MEDIA80_VM_NAME_MISMATCH
       when: media_vm_conf.stat.exists
 

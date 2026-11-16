@@ -25,5 +25,8 @@
       - (core_ha_vmid | int) == 2242
       - (core_media_vmid | int) == 2243
       - (core_postgres_ctid | int) == 1244
-      - core_resource_standard.media_vm_name == 'mediaserver-' ~ core_resource_standard.site_id
+      - core_resource_standard.media_vm_name == 'mediaserver-CORE'
+      - core_resource_standard.ansible_ct_name == 'ansible-CORE'
+      - core_resource_standard.ha_vm_name == 'haos-CORE'
+      - core_resource_standard.postgres_ct_name == 'postgresql-CORE'
     fail_msg: CORE_RESOURCE_STANDARD_DRIFT

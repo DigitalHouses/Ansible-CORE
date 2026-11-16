@@ -19,7 +19,7 @@ CORE Semaphore → **31-CORE Media/PBS — Create/Recreate + Import**:
 | PVE | `192.168.11.240` |
 | VM Media/PBS | `VM2243` |
 | IPv4 | `192.168.11.243/24` |
-| PVE имя | `mediaserver-dh-core` |
+| PVE имя (новые установки) | `mediaserver-CORE` (OS hostname остаётся `mediaserver-dh-core`) |
 | Ресурсы VM | 2 vCPU, 4 GiB RAM, 64 GiB `local-lvm` |
 | GPU PCI passthrough | `0000:2f:00.0` |
 | SATA controller PCI passthrough | `0000:2b:00.0` |
