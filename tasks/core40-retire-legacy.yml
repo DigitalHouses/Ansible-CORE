@@ -106,7 +106,7 @@
 
 - name: Create CORE-only backup namespace once
   ansible.builtin.command:
-    argv: [qm, guest, exec, '2243', --, proxmox-backup-debug, api, create, /admin/datastore/pbs-core/namespace, --name, dh-core]
+    argv: [qm, guest, exec, '2243', --, proxmox-backup-debug, api, create, /admin/datastore/pbs-core/namespace, --name, dh-core, --output-format, json]
   register: core40_cutover_ns_create
   changed_when: true
   failed_when: >-
