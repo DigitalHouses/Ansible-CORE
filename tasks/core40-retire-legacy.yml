@@ -130,6 +130,15 @@
     core40_cutover_acl_update.rc != 0 or
     (core40_cutover_acl_update.stdout | from_json).exitcode | int != 0
 
+- name: Read existing PVE PBS token secret privately for native pvesm registration
+  ansible.builtin.slurp:
+    src: /etc/pve/priv/storage/pbs-serzhan.pw
+  register: core40_cutover_token_secret
+  no_log: true
+  when:
+    - core40_storage_central | length == 0
+    - core40_storage_legacy | length == 1
+
 - name: Add CORE PVE pbs-core storage pointing exclusively at dh-core namespace
   ansible.builtin.command:
     argv:
@@ -149,7 +158,10 @@
       - "{{ core40_cutover_legacy_storage[0].fingerprint }}"
       - --content
       - backup
+      - --password
+      - "{{ core40_cutover_token_secret.content | b64decode | trim }}"
   register: core40_cutover_pvesm_add
+  no_log: true
   changed_when: true
   when:
     - core40_storage_central | length == 0

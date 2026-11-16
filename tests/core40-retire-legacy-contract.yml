@@ -45,3 +45,9 @@
           - >-
             (cutover | selectattr('name','equalto',
              'Refuse missing original PVE storage credential or TLS identity') | first).no_log
+          - >-
+            (cutover | selectattr('name','equalto',
+             'Read existing PVE PBS token secret privately for native pvesm registration') | first).no_log
+          - >-
+            (cutover | selectattr('name','equalto',
+             'Add CORE PVE pbs-core storage pointing exclusively at dh-core namespace') | first).no_log
