@@ -38,6 +38,25 @@ expected the now-retired `pbs-serzhan` datastore. The preflight now checks
 `changed=0`. Future fresh-install import removes old PBS *registration*
 with `--destroy-data false` and restores scoped CORE PVE token ACL as needed.
 
+## CORE guest display-name standard (16 Nov 2026)
+
+All **new** guests on CORE PVE use the exact uppercase `-CORE` suffix:
+CT1241 `ansible-CORE`, VM2242 `haos-CORE`, VM2243 `mediaserver-CORE`,
+CT1244 `postgresql-CORE`. IDs, IP addresses, `dh-core` site ID and
+internal Media OS hostname `mediaserver-dh-core` are independent of
+PVE display labels. Existing non-Media CTs are not renamed in place.
+
+- GitHub `main`: `c174fe4` (creation standard + safe CORE №30 `sync-name`)
+  and `c23329e` (Ansible preflight conditional fix).
+- CORE №30 Job **#140** failed before mutation due to a malformed Ansible
+  conditional. Corrected without changing any running VM.
+- CORE №30 Job **#141** succeeded: VM2243 PVE display label changed to
+  `mediaserver-CORE` in place (`changed=1`), no restart/recreate/ZFS change;
+  native E2E `PASS`, 12 web targets HTTP 200.
+- CORE №30 Job **#142** follow-up audit: `PASS`, `changed=0`.
+- CORE №31 Job **#143** fresh/recreate **audit only**: PVE acceptance `PASS`,
+  `changed=0`. **No recreate or import was requested.**
+
 ## Historical drift before CORE #40 Job #134 (resolved)
 
 - CORE PVE `192.168.11.240`; Semaphore CT1241 `192.168.11.241`; Media/PBS VM2243 `192.168.11.243`.

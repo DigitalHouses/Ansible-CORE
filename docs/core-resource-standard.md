@@ -48,7 +48,9 @@ label. The original Proxmox labels `mediaserver-dh-core` and
 `mediaserver-serzhan` remain read-only accepted legacy identities so
 existing VM2243 can be checked without a recreate. CORE №30 `sync-name`
 changes only its PVE display name in place after ownership and IP checks.
-For new deployments, №31 creates VM2243 with `mediaserver-CORE` directly.
+For new deployments, №31 creates VM2243 with `mediaserver-CORE` directly. CORE №30 Jobs
+#141/#142 verified the rename and idempotent post-rename audit on
+16 November 2026.
 For a new Semaphore CT, CORE bootstrap creates `ansible-CORE`; it does
 not rename any existing live LXC or alter another site's resources.
 
