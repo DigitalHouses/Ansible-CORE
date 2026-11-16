@@ -1,0 +1,120 @@
+---
+# CORE-only, read-only audit for a future dh-stats LXC deployment.
+# No HOME contact, no Cloudflare configuration changes, no CT creation.
+- name: "60 | Validate CORE-only DH Stats diagnostic target"
+  hosts: runner
+  connection: local
+  gather_facts: false
+  vars_files:
+    - /etc/digitalhouses/pve.yml
+    - ../vars/core-resource-standard.yml
+  vars:
+    core60_action: "{{ DH_CORE60_ACTION | default('audit', true) }}"
+  tasks:
+    - name: Refuse any deployment or a foreign PVE site
+      ansible.builtin.assert:
+        that:
+          - core60_action == 'audit'
+          - pve.ipv4 == '192.168.11.240'
+          - (core_stats_ctid | int) == 1245
+          - core_resource_standard.stats_ct_name == 'dh-stats-CORE'
+        fail_msg: CORE60_AUDIT_ONLY_OR_SITE_MISMATCH
+
+    - name: Verify CORE bootstrap and IP/ID ownership
+      ansible.builtin.include_tasks: ../tasks/core-resource-standard-assert.yml
+
+    - name: Probe existing public telemetry health without writing data
+      ansible.builtin.uri:
+        url: https://telemetry.digitalhouses.vip/healthz
+        method: GET
+        return_content: true
+        timeout: 8
+        use_proxy: false
+      register: core60_public_health
+      changed_when: false
+      failed_when: false
+
+    - name: Register only the trusted CORE PVE read-only audit target
+      ansible.builtin.add_host:
+        name: core60_pve
+        groups: core60_pve_hosts
+        ansible_host: "{{ pve.ipv4 }}"
+        ansible_user: root
+        ansible_connection: ssh
+        ansible_python_interpreter: /usr/bin/python3
+        ansible_ssh_private_key_file: /var/lib/semaphore/.ssh/id_ed25519
+        ansible_ssh_common_args: >-
+          -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes
+          -o UserKnownHostsFile=/var/lib/semaphore/.ssh/known_hosts
+        core60_expected_node: "{{ pve.node }}"
+        core60_public_status: "{{ core60_public_health.status | default('unreachable') }}"
+        core60_public_ok: >-
+          {{ (core60_public_health.status | default(0) | int) == 200
+             and (core60_public_health.json.status | default('')) == 'ok' }}
+      changed_when: false
+      no_log: true
+
+- name: "60 | Audit CORE Proxmox resources only"
+  hosts: core60_pve_hosts
+  gather_facts: false
+  vars_files:
+    - ../vars/core-resource-standard.yml
+  tasks:
+    - name: Confirm actual CORE PVE node identity
+      ansible.builtin.command:
+        argv: [hostname, -s]
+      register: core60_hostname
+      changed_when: false
+
+    - name: Refuse to inspect another Proxmox host
+      ansible.builtin.assert:
+        that:
+          - core60_hostname.stdout | trim == core60_expected_node
+        fail_msg: CORE60_PVE_IDENTITY_MISMATCH
+
+    - name: Read all Proxmox guest IDs and names without changes
+      ansible.builtin.command:
+        argv: [pvesh, get, /cluster/resources, --type, vm, --output-format, json]
+      register: core60_resources_raw
+      changed_when: false
+
+    - name: Find target ID and canonical-name conflicts
+      ansible.builtin.set_fact:
+        core60_resources: "{{ core60_resources_raw.stdout | from_json }}"
+        core60_existing_id: >-
+          {{ (core60_resources_raw.stdout | from_json)
+             | selectattr('vmid', 'equalto', core_stats_ctid | int) | list }}
+        core60_existing_name: >-
+          {{ (core60_resources_raw.stdout | from_json)
+             | selectattr('name', 'defined')
+             | selectattr('name', 'equalto', core_resource_standard.stats_ct_name) | list }}
+
+    - name: Read PVE LAN address without changing it
+      ansible.builtin.command:
+        argv: [ip, -4, -o, addr, show, dev, vmbr0]
+      register: core60_pve_lan_raw
+      changed_when: false
+
+    - name: Require exact CORE LAN block and matching CTID rule
+      ansible.builtin.assert:
+        that:
+          - core60_pve_lan_raw.stdout is search('192[.]168[.]11[.]240/24')
+          - (core_stats_ctid | int) == (core_resource_standard.ct_offset | int) + (core_resource_standard.stats_octet | int)
+        fail_msg: CORE60_PVE_LAN_OR_ID_DRIFT
+
+    - name: Report audit-only DH Stats migration readiness
+      ansible.builtin.debug:
+        msg:
+          - CORE60_MODE=AUDIT_ONLY
+          - "CORE60_PVE={{ core60_expected_node }}/192.168.11.240"
+          - "CORE60_TARGET_CTID={{ core_stats_ctid }}"
+          - "CORE60_TARGET_LABEL={{ core_resource_standard.stats_ct_name }}"
+          - "CORE60_TARGET_IPV4={{ (core60_pve_lan_raw.stdout | regex_findall('inet ([0-9.]+)/24') | first).split('.')[:3] | join('.') }}.{{ core_resource_standard.stats_octet }}"
+          - "CORE60_CTID={{ 'CONFLICT' if core60_existing_id | length else 'AVAILABLE_IN_PVE' }}"
+          - "CORE60_PVE_NAME={{ 'CONFLICT' if core60_existing_name | length else 'AVAILABLE_IN_PVE' }}"
+          - "CORE60_PUBLIC_TELEMETRY={{ 'HEALTHY' if core60_public_ok | bool else 'UNVERIFIED' }}"
+          - CORE60_CF_ORIGIN=NOT_VERIFIED
+          - CORE60_HOME_CT7000=NOT_TOUCHED
+          - CORE60_IP_LAN_OCCUPANCY=NOT_VERIFIED_BY_PVE_GUEST_IDS
+          - CORE60_DB_BACKUP_AND_TUNNEL_CUTOVER=NOT_STARTED
+          - CORE60_DEPLOY=NOT_PERFORMED

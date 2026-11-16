@@ -29,3 +29,7 @@ See `bootstrap/README.md`, `docs/repository-split.md`,
 `docs/architecture-central-backup.md` (architecture source of truth),
 `docs/task50-central-backup.md` and `docs/task71-tailscale.md`.
 Original source: `DigitalHouses/Ansible-3` is archived for history.
+
+### CORE DH Stats (№60)
+
+Диагностика и план переезда HOME CT7000 → CORE CT1245/IP .245 без запуска развёртывания: [docs/task60-dh-stats.md](docs/task60-dh-stats.md). Задача №60 пока поддерживает **только audit**.

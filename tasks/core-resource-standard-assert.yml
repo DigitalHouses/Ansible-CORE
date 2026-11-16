@@ -25,6 +25,9 @@
       - (core_ha_vmid | int) == 2242
       - (core_media_vmid | int) == 2243
       - (core_postgres_ctid | int) == 1244
+      - (core_resource_standard.stats_octet | int) == (core_resource_standard.pve_octet | int) + 5
+      - (core_stats_ctid | int) == 1245
+      - core_resource_standard.stats_ct_name == 'dh-stats-CORE'
       - core_resource_standard.media_vm_name == 'mediaserver-CORE'
       - core_resource_standard.ansible_ct_name == 'ansible-CORE'
       - core_resource_standard.ha_vm_name == 'haos-CORE'

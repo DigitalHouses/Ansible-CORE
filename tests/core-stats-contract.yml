@@ -1,0 +1,30 @@
+---
+- name: Contract for CORE DH Stats read-only audit
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - ../vars/core-resource-standard.yml
+  vars:
+    root: "{{ playbook_dir | dirname }}"
+    audit: "{{ lookup('ansible.builtin.file', root ~ '/playbooks/core-stats.yml') | from_yaml }}"
+    catalog: "{{ lookup('ansible.builtin.file', root ~ '/catalog/tasks.yml') | from_yaml }}"
+    entry: "{{ (catalog.tasks | selectattr('name', 'equalto', '60-CORE DH Stats') | list | first) }}"
+  tasks:
+    - name: Verify deterministic CORE target and read-only task catalog
+      ansible.builtin.assert:
+        that:
+          - core_stats_ctid | int == 1245
+          - core_resource_standard.stats_ct_name == 'dh-stats-CORE'
+          - core_resource_standard.stats_octet == 245
+          - entry.playbook == 'playbooks/core-stats.yml'
+          - entry.survey_vars[0].default_value == 'audit'
+          - entry.survey_vars[0]['values'] | map(attribute='value') | list == ['audit']
+          - "'core-resource-standard-assert.yml' in (audit | to_json)"
+          - "'pvesh' in (audit | to_json)"
+          - "'https://telemetry.digitalhouses.vip/healthz' in (audit | to_json)"
+          - "'pct, create' not in (audit | to_json)"
+          - "'pct, destroy' not in (audit | to_json)"
+          - "'qm, destroy' not in (audit | to_json)"
+          - "'zfs' not in (audit | to_json)"
+          - "'POST' not in (audit | to_json)"

@@ -10,6 +10,8 @@ core_resource_standard:
   ha_octet: 242
   media_octet: 243
   postgres_octet: 244
+  stats_octet: 245
+  stats_ct_name: dh-stats-CORE
   vm_offset: 2000
   ct_offset: 1000
   # Proxmox guest display names. Site ID and internal OS hostnames stay lowercase.
@@ -24,3 +26,5 @@ core_ansible_ctid: "{{ (core_resource_standard.ct_offset | int) + (core_resource
 core_ha_vmid: "{{ (core_resource_standard.vm_offset | int) + (core_resource_standard.ha_octet | int) }}"
 core_media_vmid: "{{ (core_resource_standard.vm_offset | int) + (core_resource_standard.media_octet | int) }}"
 core_postgres_ctid: "{{ (core_resource_standard.ct_offset | int) + (core_resource_standard.postgres_octet | int) }}"
+
+core_stats_ctid: "{{ (core_resource_standard.ct_offset | int) + (core_resource_standard.stats_octet | int) }}"
