@@ -51,11 +51,9 @@
   ansible.builtin.set_fact:
     core40_guest_stores: "{{ ((core40_guest_stores_raw.stdout | from_json)['out-data'] | trim) | from_json }}"
 
-- name: Require legacy PBS preservation and distinct central target
+- name: Require unique central PBS target without depending on HOME-only legacy datastore
   ansible.builtin.assert:
     that:
-      - (core40_guest_stores | selectattr('name', 'equalto', 'pbs-serzhan') | list | length) == 1
-      - (core40_guest_stores | selectattr('name', 'equalto', 'pbs-serzhan') | first).path == '/serzhan-pool/pbs-serzhan'
       - (core40_guest_stores | selectattr('name', 'equalto', 'pbs-core') | list | length) <= 1
       - >-
         (core40_guest_stores | selectattr('name', 'equalto', 'pbs-core') | list | length) == 0
@@ -179,5 +177,5 @@
     msg:
       - CORE40_PBS_DATASTORE=PASS
       - CORE40_CORE_PBS_PATH=/serzhan-pool/pbs-core
-      - CORE40_LEGACY_PBS=UNCHANGED
+      - CORE40_HOME_ONLY_PBS=NOT_MODIFIED
       - CORE40_SYNC=NOT_CONFIGURED

@@ -98,4 +98,5 @@
       - "CORE40_PBS_CORE_DATASTORE={{ 'PRESENT' if core40_pbs_central | length == 1 else 'NOT_CONFIRMED' }}"
       - "CORE40_PBS_LEGACY_DATASTORE={{ 'PRESENT' if core40_pbs_legacy | length == 1 else 'NOT_CONFIGURED' }}"
       - "CORE40_PBS_LEGACY_HAS_SNAPSHOTS={{ 'UNKNOWN' if core40_pbs_legacy | length != 1 else ('YES' if ((core40_legacy_snapshots_probe.stdout | from_json)['out-data'] | trim | length > 0) else 'NO') }}"
+      - "CORE40_ARCHITECTURE_PBS={{ 'DRIFT_HOME_DATASTORE_REGISTERED_ON_CORE' if (core40_pve_pbs_legacy | length > 0 or core40_legacy_backup_jobs | length > 0 or core40_pbs_legacy | length > 0) else 'COMPLIANT_ONLY_PBS_CORE' }}"
       - CORE40_LEGACY_CLEANUP=NOT_PERFORMED

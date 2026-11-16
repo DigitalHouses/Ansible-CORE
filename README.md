@@ -6,8 +6,7 @@ Independent native Ansible + existing Semaphore for central **dh-core** infrastr
 - **05-Ввести и проверить credentials** — maintain shared native Semaphore credentials for all CORE tasks.
 - **30-CORE Media E2E** — read-only end-to-end validation of canonical VM2243/.243 identity, all portal links, native Media services, SMB, HTTPS and NoCloud; optional surgical portal/IP repair.
 - **31-CORE Media/PBS — Create/Recreate + Import** — fresh Debian 13 VM2243 install, original `serzhan-pool` import (never erase), PBS identity and native Media services; supports `audit`, `apply`, and `resume`. Clean-install acceptance: Job #122 PASS (14 Nov 2026).
-- **40-CORE Infrastructure** — audit CORE PVE/PBS infrastructure; safely
-  prepare dedicated `pbs-core` datastore when explicitly selected.
+- **40-CORE Infrastructure** — audit CORE PVE/PBS infrastructure and report legacy `pbs-serzhan` on CORE as **architecture drift**; safely prepare dedicated `pbs-core` datastore when explicitly selected.
 - **50-Central Backup** — audit central PBS; pilot serzhan-home namespace and scoped Push/Restore tokens are provisioned. 21 incoming snapshots have passed a native manual PBS Verify (Job #128, 16 Nov 2026). Retention/Prune, automatic Verify/GC, freshness monitoring and E2E Restore remain outstanding. HOME initiates native **Push Sync** into CORE; no CORE Pull Jobs.
 - **71-Tailscale** — manage CORE PVE/PBS Tailscale client via separate audit,
   install, configure, join, one-time PBS migration and stable-only update actions.
@@ -20,6 +19,8 @@ runs local backups.
 Backblaze B2 is deferred (source HOME vs CORE not decided).
 
 Resource IDs and naming: `docs/core-resource-standard.md`.
+**Target PBS topology:** HOME PBS VM2223 (`.223` on PVE `.220`) owns `pbs-serzhan`; CORE PBS VM2243 (`.243`) owns only `pbs-core`. The old `pbs-serzhan` on CORE is a pending noncompliant legacy dependency, not part of the target architecture.
+
 CORE VM2243 recovery prerequisites: `docs/task31-core-recreate-import.md`.
 Latest CORE runtime audit: `docs/core-postinstall-audit-2026-11-16.md`.
 

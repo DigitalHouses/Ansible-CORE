@@ -41,19 +41,19 @@
   register: core31_backup_jobs_raw
   changed_when: false
 
-- name: Detect the legacy CORE PVE backup job without changing its destination
+- name: Detect current CORE PVE PBS backup job without changing its destination
   ansible.builtin.set_fact:
     core31_existing_local_jobs: >-
       {{ (core31_backup_jobs_raw.stdout | from_json)
-         | selectattr('id', 'equalto', 'dh-local-pbs-serzhan') | list }}
+         | selectattr('storage', 'in', ['pbs-core','pbs-serzhan']) | list }}
 
 - name: Refuse to touch a different local backup arrangement
   ansible.builtin.assert:
     that:
       - core31_existing_local_jobs | length == 1
-      - core31_existing_local_jobs[0].storage == 'pbs-serzhan'
+      - core31_existing_local_jobs[0].storage in ['pbs-core','pbs-serzhan']
       - "'2243' in core31_existing_local_jobs[0].exclude | default('')"
-    fail_msg: CORE31_LEGACY_BACKUP_SCHEDULE_OR_SELF_EXCLUSION_CHANGED
+    fail_msg: CORE31_BACKUP_SCHEDULE_OR_SELF_EXCLUSION_CHANGED
 
 - name: Confirm actual preserved ZFS pool identity and health through QGA
   ansible.builtin.command:
@@ -117,7 +117,7 @@
   ansible.builtin.set_fact:
     core31_pbs_stores: "{{ (core31_pbs_stores_raw.stdout | from_json)['out-data'] | from_json }}"
 
-- name: Refuse to separate PBS from either preserved datastore
+- name: Require central PBS store and validate optional legacy data registration
   ansible.builtin.assert:
     that:
       - >-
@@ -125,7 +125,7 @@
          | map(attribute='path') | list) == ['/serzhan-pool/pbs-core']
       - >-
         (core31_pbs_stores | selectattr('name', 'equalto', 'pbs-serzhan')
-         | map(attribute='path') | list) == ['/serzhan-pool/pbs-serzhan']
+         | map(attribute='path') | list) in [[], ['/serzhan-pool/pbs-serzhan']]
     fail_msg: CORE31_PBS_DATASTORE_IDENTITY_DRIFT
 
 - name: Check root-disk credentials and application state really live on ext4
@@ -153,7 +153,6 @@
         test "$(findmnt -n -T /etc/proxmox-backup -o FSTYPE)" = ext4
         test "$(findmnt -n -T /var/lib/plexmediaserver -o FSTYPE)" = ext4
         test "$(findmnt -n -T /serzhan-pool/pbs-core -o FSTYPE)" = zfs
-        test "$(findmnt -n -T /serzhan-pool/pbs-serzhan -o FSTYPE)" = zfs
         echo CORE31_GUEST_SECRETS_ON_ROOTFS_AND_PBS_DATA_ON_ZFS
   register: core31_guest_state_raw
   changed_when: false
@@ -198,7 +197,7 @@
       - "CORE31_ZFS_POOL={{ core31_hardware.pool_name }}/ONLINE"
       - "CORE31_ZFS_GUID={{ core31_hardware.pool_guid }}"
       - "CORE31_SATA_SERIAL={{ core31_hardware.sata_serial }}"
-      - CORE31_PBS_DATASTORES=pbs-core,pbs-serzhan
+      - "CORE31_PBS_DATASTORES={{ core31_pbs_stores | map(attribute='name') | join(',') }}"
       - CORE31_ROOTFS_PBS_CREDENTIALS=NEED_PRESERVATION
       - "CORE31_EXISTING_NVME_BOOT_BACKUPS={{ core31_boot_archives.matched }}"
       - "CORE31_LOCAL_BACKUP_JOB_EXCLUDES_VM2243={{ '2243' in (core31_existing_local_jobs[0].exclude | default('')) }}"

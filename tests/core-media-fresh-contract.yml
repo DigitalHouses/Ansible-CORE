@@ -27,6 +27,8 @@
           - core_media_spec.vmid == 2243
           - core_media_spec.network.ipv4 == '192.168.11.243/24'
           - core_media_spec.storage.pool_name == 'serzhan-pool'
+          - "'pbs-core' in core_media_spec.storage.layout.datasets"
+          - "'pbs-serzhan' not in core_media_spec.storage.layout.datasets"
           - core_media_spec.storage.import_pool_guid == '18293847766285774524'
           - core_media_spec.pci.sata_controller == '0000:2b:00.0'
           - core_media_spec.pci.gpu == '0000:2f:00.0'
@@ -61,7 +63,7 @@
           - "'zpool, destroy' not in zfs"
           - "'etc/proxmox-backup' in pbs"
           - "'pbs-core' in pbs"
-          - "'pbs-serzhan' in pbs"
+          - "'pbs-core' in pbs"
 
     - name: Require resumed install to avoid recreating the already fresh VM
       ansible.builtin.assert:

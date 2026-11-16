@@ -25,7 +25,7 @@ CORE Semaphore → **31-CORE Media/PBS — Create/Recreate + Import**:
 | SATA controller PCI passthrough | `0000:2b:00.0` |
 | Физический пул | `serzhan-pool` |
 | Pool GUID | `18293847766285774524` |
-| PBS datastore | `pbs-core`, `pbs-serzhan` |
+| PBS datastore | Целевой: только `pbs-core`; временная legacy-регистрация `pbs-serzhan` на CORE пока существует и подлежит выводу после миграции CORE Backup Job |
 | Данные приложений и клиент | `serzhan` на исходном ZFS |
 | Сеть Tailscale | `accept-dns=false`, `accept-routes=false` |
 
@@ -37,7 +37,7 @@ CORE Site ID — `dh-core`, а старое имя пула `serzhan-pool` со�
 2. До удаления старого системного диска загрузить официальную Debian 13 cloud image и проверить SHA512.
 3. Создать новую VM2243 через нативные `qm create`, `qm importdisk`, Cloud-Init и QGA. Поскольку VMID задан только CORE, никаких HOME VM не затрагивать.
 4. Установить Debian/ZFS/Intel GPU, выполнить `zpool import -f serzhan-pool` без переформатирования и подтвердить **точный GUID**.
-5. Установить новый PBS 4.2+ и восстановить **только** его конфигурацию, TLS/ACL/API-токены из защищённого архива на существующем ZFS. Это **не** восстановление операционной системы из архива.
+5. Установить новый PBS 4.2+ и восстановить **только** его конфигурацию, TLS/ACL/API-токены из защищённого архива на существующем ZFS. Это **не** восстановление операционной системы из архива. Если архив ещё содержит legacy `pbs-serzhan`, его регистрацию нужно вывести отдельным безопасным cutover CORE backup job; не считать legacy целевым datastore.
 6. Поставить Tailscale с сохранением прежнего ключевого состояния и отключённым перехватом DNS/маршрутов, затем нативные SMB и Media-приложения с пользовательскими учётными записями на ZFS.
 7. Проверить услуги и PVE/Guest acceptance, затем отдельно через CORE №40/50/71 подтвердить центральное резервирование и сеть.
 

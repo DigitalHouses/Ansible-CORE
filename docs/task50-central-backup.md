@@ -24,8 +24,10 @@
 - **CORE №40:** инфраструктура PBS и datastore. WARP удалён;
   рабочий транспорт резервирования — Tailscale (CORE №71).
 - **B2:** отложено; не входит в реализацию №50.
-- Legacy datastore `pbs-serzhan` на CORE и действующие HOME backup
-  jobs не менять.
+- Datastore `pbs-serzhan` должен существовать только на **HOME**.
+  Нынешняя регистрация на CORE — legacy drift; действующие backup jobs
+  HOME не менять. Существующие CORE ZFS snapshots сохранять до
+  безопасной миграции зависимого CORE PVE backup job.
 
 Равные полномочия HOME означают **одинаковую роль для отправки
 резервных копий**, но отдельный namespace каждого дома.

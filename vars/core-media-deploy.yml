@@ -38,7 +38,6 @@ core_media_spec:
       - downloads
       - media
       - pbs-core
-      - pbs-serzhan
       - timemachine
       directories:
       - backups

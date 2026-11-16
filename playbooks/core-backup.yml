@@ -106,7 +106,6 @@
         that:
           - (core50_datastores | selectattr('name', 'equalto', 'pbs-core') | list | length) == 1
           - (core50_datastores | selectattr('name', 'equalto', 'pbs-core') | first).path == '/serzhan-pool/pbs-core'
-          - (core50_datastores | selectattr('name', 'equalto', 'pbs-serzhan') | list | length) == 1
         fail_msg: CORE50_CENTRAL_DATASTORE_MISSING_OR_CHANGED
 
     - name: Prepare CORE receiving side of serzhan-home Push/Restore

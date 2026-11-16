@@ -45,12 +45,14 @@ requiring the exact CORE VMID and IP. This is a compatibility exception,
 
 ## Preserved existing data
 
-The ZFS pool `serzhan-pool` and PBS datastores
-`pbs-serzhan` (legacy) and `pbs-core` (central) are distinct from
-the Proxmox VM name. The running CORE PVE backup job
-`dh-local-pbs-serzhan` still refers to the legacy storage, which
-contains snapshots. None is renamed, removed or imported by this
-standardization.
+The physical ZFS pool `serzhan-pool` is independent of the Proxmox
+VM name. **Target CORE PBS datastore is only `pbs-core`**; the
+`pbs-serzhan` datastore belongs to HOME PBS VM2223, not CORE VM2243.
+CORE still has a **noncompliant legacy** `pbs-serzhan` registration,
+318 GiB of protected ZFS data, and an active 02:00 PVE backup job
+`dh-local-pbs-serzhan`. The old registration must be retired only after
+migrating its scheduled backup target; never delete the historical data
+as part of this correction.
 
 **Recreate + Import belongs only to CORE №31 `apply`**, never to the
 read-only CORE №30 E2E or №40 infrastructure tasks. Before that

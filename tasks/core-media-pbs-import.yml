@@ -82,7 +82,7 @@
   register: core_media_pbs_stores
   changed_when: false
 
-- name: Require both preserved ZFS-backed datastores after new package installation
+- name: Require central PBS datastore and validate any still-registered legacy datastore
   ansible.builtin.assert:
     that:
       - >-
@@ -92,5 +92,5 @@
       - >-
         (core_media_pbs_stores.stdout | from_json
          | selectattr('name','equalto','pbs-serzhan')
-         | map(attribute='path') | list) == ['/serzhan-pool/pbs-serzhan']
+         | map(attribute='path') | list) in [[], ['/serzhan-pool/pbs-serzhan']]
     fail_msg: CORE_MEDIA_PBS_DATASTORE_CONFIG_NOT_REATTACHED

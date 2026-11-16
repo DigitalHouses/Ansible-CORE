@@ -28,3 +28,5 @@
           - "'datastore' in (audit_tasks | to_json)"
           - "'index.json.blob' in (audit_tasks | to_json)"
           - "'CORE40_LEGACY_CLEANUP=NOT_PERFORMED' in (audit_tasks | to_json)"
+          - "'CORE40_ARCHITECTURE_PBS=' in (audit_tasks | to_json)"
+          - "'DRIFT_HOME_DATASTORE_REGISTERED_ON_CORE' in (audit_tasks | to_json)"
