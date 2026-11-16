@@ -31,6 +31,12 @@ The physical dataset `serzhan-pool/pbs-serzhan` retains **318 GiB**
 of historical archives, with no deletion or formatting. HOME unchanged.
 CORE #40 Job **#135** returned `COMPLIANT_ONLY_PBS_CORE`, `changed=0`;
 CORE #50 Job **#136** read-only audit succeeded, `changed=0`.
+CORE #31 Job **#137** initially failed because its historical preflight
+expected the now-retired `pbs-serzhan` datastore. The preflight now checks
+`pbs-core`, and CORE #31 Job **#138** passed with
+`MEDIA30_E2E_PREFLIGHT=PASS`, `MEDIA30_E2E_PBS_DATASTORE=pbs-core`,
+`changed=0`. Future fresh-install import removes old PBS *registration*
+with `--destroy-data false` and restores scoped CORE PVE token ACL as needed.
 
 ## Historical drift before CORE #40 Job #134 (resolved)
 
