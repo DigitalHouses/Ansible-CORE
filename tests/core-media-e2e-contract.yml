@@ -21,6 +21,9 @@
           - task30.playbook == 'playbooks/core-media-e2e.yml'
           - task30.survey_vars[0].default_value == 'audit'
           - task30.survey_vars[0]['values'] | map(attribute='value') | list == ['audit', 'repair-portal', 'sync-name']
+          - >-
+            ((checks | selectattr('name', 'equalto', 'Refuse to rename a foreign CORE VM or change its guest identity') | first)
+              ['ansible.builtin.assert'].that | map('type_debug') | unique | list) == ['str']
           - "'192.168.11.240' in alltext"
           - "'2243' in alltext"
           - "'192.168.11.243' not in alltext"

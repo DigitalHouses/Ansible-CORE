@@ -97,8 +97,10 @@
       ansible.builtin.assert:
         that:
           - core_media_vm_name in [core_resource_standard.media_vm_name, core_resource_standard.media_legacy_vm_name]
-          - core_media_vm_config.stdout is search('(?m)^description: DigitalHouses managed media guest v2$')
-          - core_media_vm_config.stdout is search('(?m)^ipconfig0: ip=' ~ (core_media_expected_ipv4 | regex_escape) ~ '/24,gw=')
+          - >-
+            core_media_vm_config.stdout is search('(?m)^description: DigitalHouses managed media guest v2$')
+          - >-
+            core_media_vm_config.stdout is search('(?m)^ipconfig0: ip=' ~ (core_media_expected_ipv4 | regex_escape) ~ '/24,gw=')
         fail_msg: CORE_MEDIA30_FOREIGN_OR_UNEXPECTED_VM_RENAME_REFUSED
       when: core_media_action == 'sync-name'
 
