@@ -13,6 +13,7 @@
     image: "{{ lookup('ansible.builtin.file', root ~ '/tasks/media30-image-prestage.yml') }}"
     vm: "{{ lookup('ansible.builtin.file', root ~ '/tasks/media-vm-apply.yml') | from_yaml }}"
     pbs: "{{ lookup('ansible.builtin.file', root ~ '/tasks/core-media-pbs-import.yml') }}"
+    recreate_gate: "{{ lookup('ansible.builtin.file', root ~ '/tasks/media30-recreate-e2e-preflight.yml') }}"
     catalog: "{{ lookup('ansible.builtin.file', root ~ '/catalog/tasks.yml') | from_yaml }}"
     pbs_identity: "{{ lookup('ansible.builtin.file', root ~ '/tasks/core-media-pbs-import.yml') | from_yaml }}"
     tailscale_tasks: "{{ lookup('ansible.builtin.file', root ~ '/tasks/core-media-tailscale-import.yml') | from_yaml }}"
@@ -63,7 +64,11 @@
           - "'zpool, destroy' not in zfs"
           - "'etc/proxmox-backup' in pbs"
           - "'pbs-core' in pbs"
-          - "'pbs-core' in pbs"
+          - "'--destroy-data' in pbs"
+          - "'pbs-serzhan' in pbs"
+          - "'/datastore/pbs-core/dh-core' in pbs"
+          - "'/pbs-core' in recreate_gate"
+          - "'MEDIA30_E2E_PBS_DATASTORE=pbs-core' in recreate_gate"
 
     - name: Require resumed install to avoid recreating the already fresh VM
       ansible.builtin.assert:

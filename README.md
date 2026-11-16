@@ -19,7 +19,7 @@ runs local backups.
 Backblaze B2 is deferred (source HOME vs CORE not decided).
 
 Resource IDs and naming: `docs/core-resource-standard.md`.
-**Target PBS topology:** HOME PBS VM2223 (`.223` on PVE `.220`) owns `pbs-serzhan`; CORE PBS VM2243 (`.243`) owns only `pbs-core`. The old `pbs-serzhan` on CORE is a pending noncompliant legacy dependency, not part of the target architecture.
+**PBS topology (verified 16 Nov 2026):** HOME PBS VM2223 (`.223` on PVE `.220`) owns `pbs-serzhan`; CORE PBS VM2243 (`.243`) registers only `pbs-core`, with namespaces `serzhan-home` (incoming HOME Push) and `dh-core` (own CORE PVE backups). CORE #40 Job #134 migrated the 02:00 job; read-only CORE #40/#50 Jobs #135/#136 passed. The obsolete CORE ZFS dataset `serzhan-pool/pbs-serzhan` (318 GiB) remains safely preserved but is not a registered PBS datastore.
 
 CORE VM2243 recovery prerequisites: `docs/task31-core-recreate-import.md`.
 Latest CORE runtime audit: `docs/core-postinstall-audit-2026-11-16.md`.

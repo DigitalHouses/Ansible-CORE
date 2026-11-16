@@ -76,13 +76,50 @@
     - proxmox-backup.service
     - proxmox-backup-proxy.service
 
+- name: Inspect PBS datastore registrations restored from historical CORE archive
+  ansible.builtin.command:
+    argv: [proxmox-backup-manager, datastore, list, --output-format, json]
+  register: core_media_pbs_restored_stores
+  changed_when: false
+
+- name: Require central PBS datastore before removing old registration
+  ansible.builtin.assert:
+    that:
+      - >-
+        (core_media_pbs_restored_stores.stdout | from_json
+         | selectattr('name', 'equalto', 'pbs-core')
+         | map(attribute='path') | list) == ['/serzhan-pool/pbs-core']
+    fail_msg: CORE_MEDIA_PBS_MAIN_DATASTORE_MISSING
+
+- name: Remove old HOME-only PBS registration from fresh CORE import without deleting ZFS data
+  ansible.builtin.command:
+    argv: [proxmox-backup-manager, datastore, remove, pbs-serzhan, --destroy-data, 'false']
+  changed_when: true
+  when: >-
+    (core_media_pbs_restored_stores.stdout | from_json
+     | selectattr('name', 'equalto', 'pbs-serzhan') | list | length) == 1
+
+- name: Check if preserved ZFS already has the CORE PVE backup namespace
+  ansible.builtin.stat:
+    path: /serzhan-pool/pbs-core/ns/dh-core
+  register: core_media_pbs_core_namespace
+
+- name: Restore scoped permissions for the existing CORE PVE backup token after importing old PBS credentials
+  ansible.builtin.command:
+    argv: [proxmox-backup-manager, acl, update, /datastore/pbs-core/dh-core, "{{ item }}", --auth-id, 'root@pam!pve-local']
+  loop:
+    - DatastoreBackup
+    - DatastoreAudit
+  changed_when: true
+  when: core_media_pbs_core_namespace.stat.isdir | default(false)
+
 - name: Check imported PBS datastore paths from original configuration
   ansible.builtin.command:
     argv: [proxmox-backup-manager, datastore, list, --output-format, json]
   register: core_media_pbs_stores
   changed_when: false
 
-- name: Require central PBS datastore and validate any still-registered legacy datastore
+- name: Require CORE PBS registers only pbs-core after historical archive import
   ansible.builtin.assert:
     that:
       - >-
@@ -91,6 +128,5 @@
          | map(attribute='path') | list) == ['/serzhan-pool/pbs-core']
       - >-
         (core_media_pbs_stores.stdout | from_json
-         | selectattr('name','equalto','pbs-serzhan')
-         | map(attribute='path') | list) in [[], ['/serzhan-pool/pbs-serzhan']]
+         | map(attribute='name') | list) == ['pbs-core']
     fail_msg: CORE_MEDIA_PBS_DATASTORE_CONFIG_NOT_REATTACHED

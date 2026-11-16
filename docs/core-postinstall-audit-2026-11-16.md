@@ -19,12 +19,25 @@ Baseline: `DigitalHouses/Ansible-CORE` main `c2611c1`, CORE Semaphore project 1.
 Additional readback: Plex `http://192.168.11.243:32400/identity` reports `claimed="1"`.
 Six Ansible contract/render playbooks under `tests/` passed on DEV (local execution; render test uses disposable temporary files).
 
-## Correct target and observed legacy drift
+## Completed CORE-only PBS topology cutover (16 Nov 2026)
+
+CORE #40 Job **#134** succeeded. PVE storage `pbs-core` points to
+`192.168.11.243`, datastore `pbs-core`, namespace `dh-core`; its enabled
+02:00 backup job is `dh-core-pbs-daily` (`all=1`, `exclude=2243`).
+A real CT1241 backup produced the manifest
+`pbs-core/ns/dh-core/ct/1241/2026-11-16T13:28:34Z/index.json.blob`.
+CORE PVE storage and PBS registration named `pbs-serzhan` no longer exist.
+The physical dataset `serzhan-pool/pbs-serzhan` retains **318 GiB**
+of historical archives, with no deletion or formatting. HOME unchanged.
+CORE #40 Job **#135** returned `COMPLIANT_ONLY_PBS_CORE`, `changed=0`;
+CORE #50 Job **#136** read-only audit succeeded, `changed=0`.
+
+## Historical drift before CORE #40 Job #134 (resolved)
 
 - CORE PVE `192.168.11.240`; Semaphore CT1241 `192.168.11.241`; Media/PBS VM2243 `192.168.11.243`.
 - **Target:** only PBS datastore `pbs-core` is registered on CORE; `pbs-serzhan` belongs exclusively to HOME PBS VM2223 (`.223`, under HOME PVE `.220`).
 - **Observed CORE drift:** PVE storage `pbs-serzhan` points to `.243`; enabled nightly `dh-local-pbs-serzhan` job (02:00, all guests except VM2243) uses it. CORE PBS registers a second, legacy datastore of the same name backed by about **318 GiB** of existing ZFS data. Its prune/verify jobs also exist. This is **not compliant** even though read-only audit execution succeeded.
-- Safe correction requires switching the active CORE PVE backup job to a CORE-appropriate target before unregistering the two obsolete entries. Keep the legacy ZFS dataset/snapshots intact; do not delete or wipe them. Nothing has been migrated yet.
+- At the time of the initial read-only audit, cutover had not been performed. It was subsequently completed in CORE #40 Job #134, preserving the legacy ZFS dataset and snapshots.
 - `pbs-core` receives HOME Push Sync in per-home namespaces; no CORE Pull job. A CORE PVE storage mapping is needed only if CORE's own PVE backup job is to use that datastore.
 - No VM recreate, disk erase, ZFS mutation, HOME operation or production backup-job change was performed during this audit.
 

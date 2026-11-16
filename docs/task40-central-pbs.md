@@ -2,7 +2,7 @@
 
 **CORE №40 cutover action:** `DH_CORE40_ACTION=retire-legacy` переносит расписание CORE PVE в `pbs-core/dh-core`, предварительно делает тестовый backup CT1241 и только после его проверки снимает две старые регистрации. Команда PBS использует `--destroy-data false`, 318 GiB исторических ZFS данных остаются на месте. Действует только на CORE, HOME не изменяется.
 
-**Целевое состояние (16.11.2026):** `pbs-serzhan` должен быть только на HOME PBS VM2223 (`192.168.11.223`, PVE `.220`). На CORE VM2243 должен остаться зарегистрированным только `pbs-core`. Реальное CORE наследие содержит ежедневный Backup Job `dh-local-pbs-serzhan` (02:00, исключает VM2243), ZFS dataset `serzhan-pool/pbs-serzhan` (~318 GiB) и старые Prune/Verify Jobs. **Аудит Job #126 SUCCESS — только исполнение проверки, архитектурное соответствие — DRIFT.** Не удалять действующий backup job или ZFS данные до безопасного перевода назначения резервирования.
+**Целевое состояние ДОСТИГНУТО (16.11.2026):** `pbs-serzhan` зарегистрирован только на HOME PBS VM2223 (`192.168.11.223`, PVE `.220`). CORE №40 Job **#134 — Success**: тестовый backup CT1241 в `pbs-core/dh-core`, PVE Storage `pbs-core` привязан к namespace `dh-core`, ежедневный PVE job `dh-core-pbs-daily` работает в 02:00 (`all=1`, `exclude=2243`). Legacy PVE Storage и PBS datastore регистрации удалены. Исходный ZFS dataset `serzhan-pool/pbs-serzhan` (~318 GiB) **оставлен без удаления**, вне PBS. CORE №40 Job **#135** — `COMPLIANT_ONLY_PBS_CORE`, `changed=0`; CORE №50 Job **#136** — Audit Success, `changed=0`. HOME не изменялся.
 
 **Текущая граница задач (12.11.2026):** №40 отвечает только за
 подготовку/аудит инфраструктуры центрального PBS (PVE, VM2243,

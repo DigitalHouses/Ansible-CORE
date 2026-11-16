@@ -24,10 +24,12 @@
 - **CORE №40:** инфраструктура PBS и datastore. WARP удалён;
   рабочий транспорт резервирования — Tailscale (CORE №71).
 - **B2:** отложено; не входит в реализацию №50.
-- Datastore `pbs-serzhan` должен существовать только на **HOME**.
-  Нынешняя регистрация на CORE — legacy drift; действующие backup jobs
-  HOME не менять. Существующие CORE ZFS snapshots сохранять до
-  безопасной миграции зависимого CORE PVE backup job.
+- Datastore `pbs-serzhan` существует только на **HOME**. После CORE №40
+  Job #134 на CORE PBS зарегистрирован только `pbs-core`.
+  CORE PVE резервирует в namespace `pbs-core/dh-core` через
+  `dh-core-pbs-daily` (02:00, исключая VM2243). Старый ZFS dataset
+  `serzhan-pool/pbs-serzhan` (318 GiB) сохранён как архив без PBS-регистрации.
+  CORE №50 Job #136 — read-only audit PASS. HOME не изменялся.
 
 Равные полномочия HOME означают **одинаковую роль для отправки
 резервных копий**, но отдельный namespace каждого дома.

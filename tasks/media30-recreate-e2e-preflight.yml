@@ -38,7 +38,7 @@
       - "'is healthy' in (media30_e2e_pool_health.stdout | from_json)['out-data']"
     fail_msg: MEDIA30_RECREATE_POOL_NOT_HEALTHY
 
-- name: Check exact ZFS dataset holding the local PBS datastore
+- name: Check exact ZFS dataset holding central pbs-core datastore
   ansible.builtin.command:
     argv:
       - qm
@@ -51,7 +51,7 @@
       - -H
       - -o
       - name
-      - "{{ media_spec.storage.pool_name }}/pbs-{{ media_site.owner_slug }}"
+      - "{{ media_spec.storage.pool_name }}/pbs-core"
   register: media30_e2e_pbs_dataset
   changed_when: false
 
@@ -62,10 +62,10 @@
       - (media30_e2e_pbs_dataset.stdout | from_json).exitcode | int == 0
       - >-
         ((media30_e2e_pbs_dataset.stdout | from_json)['out-data'] | trim)
-        == media_spec.storage.pool_name ~ '/pbs-' ~ media_site.owner_slug
+        == media_spec.storage.pool_name ~ '/pbs-core'
     fail_msg: MEDIA30_RECREATE_PBS_DATASET_MISSING
 
-- name: Check existing local PBS chunkstore directory without touching it
+- name: Check existing central pbs-core chunkstore without touching it
   ansible.builtin.command:
     argv:
       - qm
@@ -75,7 +75,7 @@
       - --
       - test
       - -d
-      - "/{{ media_spec.storage.pool_name }}/pbs-{{ media_site.owner_slug }}/.chunks"
+      - "/{{ media_spec.storage.pool_name }}/pbs-core/.chunks"
   register: media30_e2e_pbs_chunks
   changed_when: false
 
@@ -86,7 +86,7 @@
       - (media30_e2e_pbs_chunks.stdout | from_json).exitcode | int == 0
     fail_msg: MEDIA30_RECREATE_PBS_CHUNKS_MISSING
 
-- name: Read current local PBS datastore registration without modifying it
+- name: Read current central PBS datastore registration without modifying it
   ansible.builtin.command:
     argv:
       - qm
@@ -97,20 +97,20 @@
       - proxmox-backup-manager
       - datastore
       - show
-      - "pbs-{{ media_site.owner_slug }}"
+      - "pbs-core"
       - --output-format
       - json
   register: media30_e2e_pbs_config
   changed_when: false
 
-- name: Require local PBS datastore currently references physical ZFS data
+- name: Require central pbs-core datastore currently references physical ZFS data
   ansible.builtin.assert:
     that:
       - media30_e2e_pbs_config.rc == 0
       - (media30_e2e_pbs_config.stdout | from_json).exitcode | int == 0
       - >-
         (((media30_e2e_pbs_config.stdout | from_json)['out-data'] | from_json).path)
-        == '/' ~ media_spec.storage.pool_name ~ '/pbs-' ~ media_site.owner_slug
+        == '/' ~ media_spec.storage.pool_name ~ '/pbs-core'
     fail_msg: MEDIA30_RECREATE_PBS_DATASTORE_PATH_MISMATCH
 
 - name: Report read-only confirmation of proposed E2E without deleting VM
@@ -121,5 +121,5 @@
       - MEDIA30_E2E_DISK_ACTION=IMPORT_NO_ERASE
       - "MEDIA30_E2E_SATA_PCI={{ media_spec.pci.sata_controller }}"
       - "MEDIA30_E2E_ZFS={{ media_spec.storage.pool_name }} HEALTHY"
-      - "MEDIA30_E2E_PBS_DATASTORE=pbs-{{ media_site.owner_slug }}"
+      - "MEDIA30_E2E_PBS_DATASTORE=pbs-core"
       - MEDIA30_E2E_NEXT=RECREATE_VM_THEN_REIMPORT_PBS_WITH_TASK33

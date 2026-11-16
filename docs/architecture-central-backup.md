@@ -3,9 +3,11 @@
 **Статус на 16.11.2026:** архитектура принята. Реальный HOME Push Sync
 ранее доставил 21 snapshot в `pbs-core/serzhan-home`; после чистой
 установки CORE VM2243 Job #128 успешно выполнил native PBS Verify этого
-namespace (`worker=OK`). E2E Restore, автоматическая retention/Prune,
-Verify schedule/GC, freshness monitoring и №10 Registry **ещё не завершены**.
-Ранее намеченная модель CORE Pull отменена.
+namespace (`worker=OK`). CORE №40 Job #134 убрал лишний datastore и
+перевёл локальные backup CORE PVE на `pbs-core/dh-core`; независимые
+аудиты №40/#50 Jobs #135/#136 подтвердили соответствие. E2E Restore,
+автоматическая retention/Prune, Verify schedule/GC, freshness monitoring
+и №10 Registry **ещё не завершены**. CORE Pull отменён.
 
 ## 1. Принцип
 
@@ -30,7 +32,7 @@ CORE PBS VM2243 / 192.168.11.243:8007
 каталоги файловых архивов. Один общий datastore `pbs-core`, один
 корневой namespace на HOME; одинаковые VMID разных домов разделены.
 Второй уровень (`ha`, `pve`, `docs`) не создавать без необходимости.
-**Целевое разграничение:** `pbs-serzhan` существует только на HOME PBS VM2223 (`192.168.11.223`, HOME PVE `.220`). На CORE PBS VM2243 (`192.168.11.243`) должен быть только `pbs-core` с namespace каждого HOME. Обнаруженный на CORE `pbs-serzhan` — **legacy drift, не целевая архитектура**. Его регистрацию выводим из эксплуатации после безопасного перевода действующего CORE Backup Job; существующие ZFS snapshots не удаляем.
+**Целевое разграничение достигнуто 16.11.2026:** `pbs-serzhan` зарегистрирован только на HOME PBS VM2223 (`192.168.11.223`, PVE `.220`). На CORE PBS VM2243 (`192.168.11.243`) зарегистрирован только `pbs-core`. Отдельно `pbs-core/serzhan-home` принимает входящий HOME Push, а `pbs-core/dh-core` принимает локальные backup CORE PVE (02:00, `dh-core-pbs-daily`, без VM2243). CORE №40 Job #134 вывел legacy PBS-регистрации и переключил CORE PVE job только после успешного CT1241 backup; ZFS dataset `serzhan-pool/pbs-serzhan` (318 GiB) оставлен без удаления. CORE №40/#50 Jobs #135/#136 подтвердили итог (`changed=0`). HOME не изменялся.
 
 ## 2. Разделение ответственности
 
@@ -143,11 +145,11 @@ B2 остаётся **вне текущих задач и внедрения**. 
 6. Только после приёмки согласовать расписания/retention и подключать
    другие HOME по одному шаблону.
 
-**Не считать выполненным:** простую доступность порта `:8007`,
-успешную задачу без snapshots или прямое LAN-соединение вместо
-Cloudflare. **HOME** datastore `pbs-serzhan` и его локальные backup jobs
-не изменяются. Найденный на **CORE** одноимённый legacy datastore —
-отклонение, подлежащее безопасному выводу из эксплуатации без удаления ZFS-данных.
+**Не считать выполненным:** простую доступность порта `:8007` или
+успешную задачу без snapshots. **HOME** datastore `pbs-serzhan` и его
+локальные backup jobs не изменяются. Вывод одноимённой CORE PBS-регистрации
+выполнен Job #134 без удаления ZFS-данных. Для транспорта актуален Tailscale,
+а не исторический Cloudflare WARP.
 
 ## 8. Документация PBS
 
@@ -159,7 +161,7 @@ Cloudflare. **HOME** datastore `pbs-serzhan` и его локальные backup
 - https://pbs.proxmox.com/docs/command-syntax.html — scoped
   Prune/Verify и datastore GC.
 
-## 9. CORE №40: проверенная legacy-регистрация PBS (14.11.2026)
+## 9. CORE №40: историческая legacy-регистрация PBS (14.11.2026, устранена 16.11.2026)
 
 Read-only аудит CORE Semaphore №40, **Job #99**, завершился
 `success changed=0 failed=0`. Код проверки — Ansible-CORE PR #8.

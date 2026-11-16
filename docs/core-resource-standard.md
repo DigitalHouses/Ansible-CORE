@@ -48,11 +48,12 @@ requiring the exact CORE VMID and IP. This is a compatibility exception,
 The physical ZFS pool `serzhan-pool` is independent of the Proxmox
 VM name. **Target CORE PBS datastore is only `pbs-core`**; the
 `pbs-serzhan` datastore belongs to HOME PBS VM2223, not CORE VM2243.
-CORE still has a **noncompliant legacy** `pbs-serzhan` registration,
-318 GiB of protected ZFS data, and an active 02:00 PVE backup job
-`dh-local-pbs-serzhan`. The old registration must be retired only after
-migrating its scheduled backup target; never delete the historical data
-as part of this correction.
+**Resolved on 16 November 2026 (CORE #40 Job #134):** CORE PBS now registers
+only `pbs-core`, and the active 02:00 CORE PVE backup job is
+`dh-core-pbs-daily` targeting `pbs-core/dh-core`, still excluding VM2243.
+The previous CORE `pbs-serzhan` registration and PVE Storage were removed,
+**without deleting** the historical `serzhan-pool/pbs-serzhan` ZFS dataset
+(318 GiB). CORE #40/#50 read-only Jobs #135/#136 passed after cutover.
 
 **Recreate + Import belongs only to CORE №31 `apply`**, never to the
 read-only CORE №30 E2E or №40 infrastructure tasks. Before that
