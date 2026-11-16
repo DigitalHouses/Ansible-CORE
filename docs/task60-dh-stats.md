@@ -20,6 +20,21 @@
 - Cloudflared/Tunnel cutover должен сохранить защиту: приложение принимает `CF-IPCountry` только от доверенного Cloudflare ingress, прямой интернет-доступ до `:8080` не допускается. Локальный dashboard не должен публиковаться через публичный путь.
 - Существующий CORE nightly PVE backup job `dh-core-pbs-daily` захватывает новый CT по `all=1` (исключение VM2243), но до завершения переноса нужен отдельный PostgreSQL dump/restore с проверкой.
 
+## Выполненная CORE диагностика — 16.11.2026
+
+CORE Semaphore №00 Job #144 зарегистрировал новый шаблон №60 (ID 8).
+CORE Semaphore №60 Job **#145** — **Success, changed=0**, исключительно чтение:
+
+- PVE: `pve`, адрес `192.168.11.240/24`, идентичность подтверждена.
+- `CORE60_TARGET_CTID=1245`, `CORE60_TARGET_LABEL=dh-stats-CORE`, `CORE60_TARGET_IPV4=192.168.11.245`.
+- `CORE60_CTID=AVAILABLE_IN_PVE`, `CORE60_PVE_NAME=AVAILABLE_IN_PVE`.
+- `CORE60_PUBLIC_TELEMETRY=HEALTHY` (`/healthz`: HTTP 200 с `status=ok`).
+- `CORE60_CF_ORIGIN=NOT_VERIFIED`, `CORE60_IP_LAN_OCCUPANCY=NOT_VERIFIED_BY_PVE_GUEST_IDS`.
+- HOME CT7000, базы данных, Cloudflare Tunnel, PVE guests не изменены.
+
+**Не считать свободный VMID доказательством свободного LAN IP.** Перед apply
+требуется надёжная проверка IP на CORE и проверка актуального origin по CF API.
+
 ## Минимальный последующий план (не выполнялся)
 
 1. Прочитать реальный `pct config 7000`, конфигурацию сервисов и Cloudflare Tunnel; зафиксировать БД (размер, схемы, количество installations/heartbeats), backup и свободное место. HOME только read-only до разрешённого переключения.
