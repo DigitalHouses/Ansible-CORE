@@ -52,8 +52,8 @@ the Proxmox VM name. The running CORE PVE backup job
 contains snapshots. None is renamed, removed or imported by this
 standardization.
 
-**Recreate + Import is a separate, destructive CORE-only phase**, not
-implemented by CORE №30 E2E or №40 infrastructure tasks. Before that
+**Recreate + Import belongs only to CORE №31 `apply`**, never to the
+read-only CORE №30 E2E or №40 infrastructure tasks. Before that
 phase, audit the physical passed-through disk and ZFS pool, independent
 backups of guest OS/application state and PBS credentials, and a safe
 restore path. Recreate must never use `erase` when preserving the

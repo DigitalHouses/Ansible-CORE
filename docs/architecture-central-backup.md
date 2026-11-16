@@ -1,9 +1,11 @@
 # DigitalHouses Central Backup — целевая архитектура (решение 13.11.2026)
 
-**Статус:** архитектура принята; CORE-пилот `serzhan-home` создан в
-`pbs-core` с двумя ограниченными токенами Push/Restore (CORE №50 Job #82).
-HOME Push Sync, E2E Restore, регулярные retention/Verify и №10 Registry
-ещё **не реализованы**. Ранее намеченная модель CORE Pull отменена.
+**Статус на 16.11.2026:** архитектура принята. Реальный HOME Push Sync
+ранее доставил 21 snapshot в `pbs-core/serzhan-home`; после чистой
+установки CORE VM2243 Job #128 успешно выполнил native PBS Verify этого
+namespace (`worker=OK`). E2E Restore, автоматическая retention/Prune,
+Verify schedule/GC, freshness monitoring и №10 Registry **ещё не завершены**.
+Ранее намеченная модель CORE Pull отменена.
 
 ## 1. Принцип
 

@@ -8,6 +8,7 @@ CORE Semaphore → **31-CORE Media/PBS — Create/Recreate + Import**:
 
 - **01 — Audit** (по умолчанию): определить, существует ли VM2243, ничего не менять.
 - **02 — Apply**: если VM2243 отсутствует — **Create**; если существует — **Recreate**. Диск только **Import**, режим Erase отсутствует.
+- **03 — Resume**: продолжить установку уже существующей VM2243, без повторного создания и удаления системного диска.
 
 Источник кода — `DigitalHouses/Ansible-CORE/playbooks/core-media-fresh.yml`. Проверенные нативные блоки (Debian, Cloud-Init, GPU, ZFS, SMB, Plex, Jellyfin, Radarr, Sonarr, Prowlarr, qBittorrent, Filestash, Sambee, PBS и порталы) перенесены **в Ansible-CORE** из `Ansible-HOME`, без вызовов HOME Semaphore или HOME repo при исполнении. Никаких Python-скриптов в ролях и сброса данных ZFS.
 
@@ -41,6 +42,10 @@ CORE Site ID — `dh-core`, а старое имя пула `serzhan-pool` со�
 7. Проверить услуги и PVE/Guest acceptance, затем отдельно через CORE №40/50/71 подтвердить центральное резервирование и сеть.
 
 **Операции `qmrestore`, `wipefs`, `sgdisk`, `zpool destroy` в этом сценарии отсутствуют.** Неподдерживаемая чистая установка без существующего SATA-пула отклоняется: режим `Import` предполагает реальные физические данные. Секреты из CORE Semaphore и архив PBS на ZFS остаются закрытыми.
+
+## Приёмка после чистой установки (16.11.2026)
+
+CORE №31 Job #122 — **success**; Debian 13 VM2243 и импорт исходного ZFS прошли Guest/PVE acceptance (обе отметки `PASS`). CORE №31 Job #127 — повторный read-only audit `success changed=0`. CORE №30 Job #125 проверил канонический IP, 12 веб-сервисов, HTTPS, cloud-init и Samba (`PASS changed=0`). Отчёт: [CORE post-install audit](core-postinstall-audit-2026-11-16.md).
 
 ## История
 

@@ -32,6 +32,16 @@
 Токены для HOME → CORE создаются на **CORE PBS**, а не на HOME PBS
 для входящего CORE Pull. Credentials не хранить в Git или Survey.
 
+## Проверка после чистой установки CORE (16.11.2026)
+
+CORE №50 Job **#128** повторно прошёл штатный Verify namespace
+`pbs-core/serzhan-home` уже после новой Debian 13 VM2243: **21 snapshot**,
+worker status `OK`, `failed=0`; для этого запуска `changed=1` (ручная
+проверка), без создания расписания. Legacy `pbs-serzhan` не менялся.
+Реальный Restore в отдельный VMID, retention/Prune/GC по расписанию и
+freshness-мониторинг пока остаются вне завершённой приёмки.
+См. [отчёт post-install](core-postinstall-audit-2026-11-16.md).
+
 ## Текущая реализация — аудит и pilot prepare
 
 Шаблон CORE Semaphore №50 (ID 3) сохранён вместе с историей.
