@@ -1,0 +1,47 @@
+---
+- name: Verify guarded CORE-only legacy PBS cutover contract
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    root: "{{ playbook_dir | dirname }}"
+    catalog: "{{ lookup('ansible.builtin.file', root ~ '/catalog/tasks.yml') | from_yaml }}"
+    core40: "{{ lookup('ansible.builtin.file', root ~ '/playbooks/core-pbs.yml') | from_yaml }}"
+    cutover: "{{ lookup('ansible.builtin.file', root ~ '/tasks/core40-retire-legacy.yml') | from_yaml }}"
+    cutover_src: "{{ lookup('ansible.builtin.file', root ~ '/tasks/core40-retire-legacy.yml') }}"
+    task40: "{{ (catalog.tasks | selectattr('name','equalto','40-CORE Infrastructure') | list)[0] }}"
+    actions: "{{ task40.survey_vars[0]['values'] | map(attribute='value') | list }}"
+  tasks:
+    - name: Require separate explicit cutover action for CORE PVE only
+      ansible.builtin.assert:
+        that:
+          - actions == ['audit','prepare','retire-legacy']
+          - task40.survey_vars[0].default_value == 'audit'
+          - "'retire-legacy' in (core40 | to_json)"
+          - "'../tasks/core40-retire-legacy.yml' in (core40 | to_json)"
+          - "'192.168.11.240' in (core40 | to_json)"
+    - name: Preserve historical data while proving replacement backup before cutover
+      ansible.builtin.assert:
+        that:
+          - "'pbs-core/dh-core' in cutover_src"
+          - "'root@pam!pve-local' in cutover_src"
+          - "'--destroy-data' in cutover_src"
+          - "'false' in cutover_src"
+          - "'vzdump' in cutover_src"
+          - "'index.json.blob' in cutover_src"
+          - "'dh-core-pbs-daily' in cutover_src"
+          - "'pvesm, remove, pbs-serzhan' in cutover_src"
+          - "'zfs, destroy' not in cutover_src"
+          - "'zfs, rename' not in cutover_src"
+          - "'wipefs' not in cutover_src"
+          - "'sgdisk' not in cutover_src"
+          - "'--destroy-data, ''true''' not in cutover_src"
+    - name: Require private secrets never printed to Semaphore logs
+      ansible.builtin.assert:
+        that:
+          - >-
+            (cutover | selectattr('name','equalto',
+             'Reuse original private PVE token secret without exposing its value') | first).no_log
+          - >-
+            (cutover | selectattr('name','equalto',
+             'Refuse missing original PVE storage credential or TLS identity') | first).no_log

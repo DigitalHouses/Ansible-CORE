@@ -53,6 +53,7 @@ tasks:
         values:
           - {name: "Проверить инфраструктуру без изменений", value: audit}
           - {name: "Подготовить ZFS dataset и datastore pbs-core", value: prepare}
+          - {name: "Перенести CORE PVE backup в pbs-core/dh-core и снять legacy регистрации без удаления ZFS", value: retire-legacy}
   - name: 50-Central Backup
     playbook: playbooks/core-backup.yml
     description: "01 Аудит; 02 подготовить CORE namespace/токены; 03 проверить целостность резервных копий serzhan-home (PBS Verify, вручную, без удаления)"

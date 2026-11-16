@@ -17,7 +17,7 @@
     - name: Refuse another site or retired WARP actions
       ansible.builtin.assert:
         that:
-          - core40_action in ['audit', 'prepare']
+          - core40_action in ['audit', 'prepare', 'retire-legacy']
           - core40_site == 'dh-core'
           - core40_profile == 'core'
           - pve.ipv4 == '192.168.11.240'
@@ -97,7 +97,24 @@
       ansible.builtin.include_tasks: ../tasks/core40-legacy-pbs-audit.yml
       when: core40_action == 'audit'
 
-    - name: Report CORE inventory without touching WARP, backups or datasets
+    - name: Move CORE PVE backups off HOME-only legacy datastore without deleting old ZFS data
+      ansible.builtin.include_tasks: ../tasks/core40-retire-legacy.yml
+      when: core40_action == 'retire-legacy'
+
+    - name: Refresh PVE storage inventory after cutover
+      ansible.builtin.command:
+        argv: [pvesh, get, "/nodes/{{ core40_expected_node }}/storage", --output-format, json]
+      register: core40_storage_after_cutover
+      changed_when: false
+      when: core40_action == 'retire-legacy'
+
+    - name: Refresh PVE storage facts after cutover
+      ansible.builtin.set_fact:
+        core40_storage_legacy: "{{ (core40_storage_after_cutover.stdout | from_json) | selectattr('storage', 'equalto', 'pbs-serzhan') | list }}"
+        core40_storage_central: "{{ (core40_storage_after_cutover.stdout | from_json) | selectattr('storage', 'equalto', 'pbs-core') | list }}"
+      when: core40_action == 'retire-legacy'
+
+    - name: Report CORE inventory without touching WARP or ZFS datasets
       ansible.builtin.debug:
         msg:
           - "CORE40_MODE={{ core40_action | upper }}"

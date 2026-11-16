@@ -1,0 +1,344 @@
+---
+# CORE-only cutover: backup first, then detach legacy configurations.
+# Never remove, rename, format, or prune historical ZFS data.
+- name: Read current CORE PVE backup jobs
+  ansible.builtin.command:
+    argv: [pvesh, get, /cluster/backup, --output-format, json]
+  register: core40_cutover_jobs_raw
+  changed_when: false
+
+- name: Identify original and replacement CORE PVE backup jobs
+  ansible.builtin.set_fact:
+    core40_cutover_old_jobs: >-
+      {{ (core40_cutover_jobs_raw.stdout | from_json)
+         | selectattr('id', 'equalto', 'dh-local-pbs-serzhan') | list }}
+    core40_cutover_new_jobs: >-
+      {{ (core40_cutover_jobs_raw.stdout | from_json)
+         | selectattr('id', 'equalto', 'dh-core-pbs-daily') | list }}
+
+- name: Refuse ambiguous backup schedules or a foreign target
+  ansible.builtin.assert:
+    that:
+      - core40_media_standard | length == 1
+      - core40_media_standard[0].name == 'mediaserver-dh-core'
+      - core40_cutover_old_jobs | length <= 1
+      - core40_cutover_new_jobs | length <= 1
+      - (core40_cutover_old_jobs | length) + (core40_cutover_new_jobs | length) >= 1
+      - core40_cutover_old_jobs | length == 0 or core40_cutover_old_jobs[0].storage in ['pbs-serzhan','pbs-core']
+      - core40_cutover_new_jobs | length == 0 or core40_cutover_new_jobs[0].storage == 'pbs-core'
+      - core40_cutover_old_jobs | length == 0 or '2243' in (core40_cutover_old_jobs[0].exclude | default(''))
+      - core40_cutover_new_jobs | length == 0 or '2243' in (core40_cutover_new_jobs[0].exclude | default(''))
+    fail_msg: CORE40_BACKUP_SCHEDULE_MISMATCH_REFUSE_CUTOVER
+
+- name: Read complete CORE PVE PBS storage configuration without credentials
+  ansible.builtin.command:
+    argv: [pvesh, get, /storage, --output-format, json]
+  register: core40_cutover_storage_full_raw
+  changed_when: false
+
+- name: Identify full source PBS configuration
+  ansible.builtin.set_fact:
+    core40_cutover_legacy_storage: >-
+      {{ (core40_cutover_storage_full_raw.stdout | from_json)
+         | selectattr('storage', 'equalto', 'pbs-serzhan') | list }}
+
+- name: Verify existing CORE PVE PBS token remains in private storage
+  ansible.builtin.stat:
+    path: /etc/pve/priv/storage/pbs-serzhan.pw
+    get_checksum: false
+  register: core40_cutover_old_secret
+  no_log: true
+  when: core40_storage_legacy | length == 1
+
+- name: Refuse missing original PVE storage credential or TLS identity
+  ansible.builtin.assert:
+    that:
+      - core40_cutover_old_secret.stat.isreg | default(false)
+      - core40_cutover_old_secret.stat.size | int > 10
+      - core40_cutover_legacy_storage | length == 1
+      - core40_cutover_legacy_storage[0].fingerprint | default('') | length > 50
+      - core40_cutover_legacy_storage[0].username == 'root@pam!pve-local'
+      - core40_cutover_legacy_storage[0].datastore == 'pbs-serzhan'
+      - core40_cutover_legacy_storage[0].server == '192.168.11.243'
+    fail_msg: CORE40_LEGACY_PVE_STORAGE_CREDENTIAL_OR_TARGET_DRIFT
+  when: core40_storage_legacy | length == 1
+  no_log: true
+
+- name: Read actual CORE PBS datastore list before cutover
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, proxmox-backup-manager, datastore, list, --output-format, json]
+  register: core40_cutover_pbs_raw
+  changed_when: false
+
+- name: Require readable PBS configuration and central datastore
+  ansible.builtin.assert:
+    that:
+      - core40_cutover_pbs_raw.rc == 0
+      - (core40_cutover_pbs_raw.stdout | from_json).exitcode | int == 0
+      - not ((core40_cutover_pbs_raw.stdout | from_json)['out-truncated'] | default(false) | bool)
+      - >-
+        (((core40_cutover_pbs_raw.stdout | from_json)['out-data'] | from_json)
+         | selectattr('name', 'equalto', 'pbs-core')
+         | map(attribute='path') | list) == ['/serzhan-pool/pbs-core']
+    fail_msg: CORE40_CENTRAL_PBS_NOT_READY
+
+- name: Read registered central namespaces through trusted PBS guest
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, proxmox-backup-debug, api, get, /admin/datastore/pbs-core/namespace, --output-format, json]
+  register: core40_cutover_ns_raw
+  changed_when: false
+
+- name: Parse namespace inventory before any changes
+  ansible.builtin.set_fact:
+    core40_cutover_namespaces: >-
+      {{ ((core40_cutover_ns_raw.stdout | from_json)['out-data'] | from_json)
+         | map(attribute='ns') | list }}
+  when:
+    - core40_cutover_ns_raw.rc == 0
+    - (core40_cutover_ns_raw.stdout | from_json).exitcode | int == 0
+
+- name: Refuse an untrusted PBS namespace response
+  ansible.builtin.assert:
+    that:
+      - "'' in (core40_cutover_namespaces | default([]))"
+      - "'serzhan-home' in (core40_cutover_namespaces | default([]))"
+    fail_msg: CORE40_PBS_NAMESPACES_UNAVAILABLE
+
+- name: Create CORE-only backup namespace once
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, proxmox-backup-debug, api, create, /admin/datastore/pbs-core/namespace, --name, dh-core]
+  register: core40_cutover_ns_create
+  changed_when: true
+  failed_when: >-
+    core40_cutover_ns_create.rc != 0 or
+    (core40_cutover_ns_create.stdout | from_json).exitcode | int != 0
+  when: "'dh-core' not in core40_cutover_namespaces"
+
+- name: Grant only namespace-scoped backup and audit roles to existing CORE PVE token
+  ansible.builtin.command:
+    argv: >-
+      {{ ['qm', 'guest', 'exec', '2243', '--',
+          'proxmox-backup-manager', 'acl', 'update',
+          '/datastore/pbs-core/dh-core', item,
+          '--auth-id', 'root@pam!pve-local'] }}
+  loop:
+    - DatastoreBackup
+    - DatastoreAudit
+  register: core40_cutover_acl_update
+  changed_when: true
+  failed_when: >-
+    core40_cutover_acl_update.rc != 0 or
+    (core40_cutover_acl_update.stdout | from_json).exitcode | int != 0
+
+- name: Add CORE PVE pbs-core storage pointing exclusively at dh-core namespace
+  ansible.builtin.command:
+    argv:
+      - pvesm
+      - add
+      - pbs
+      - pbs-core
+      - --server
+      - '192.168.11.243'
+      - --datastore
+      - pbs-core
+      - --namespace
+      - dh-core
+      - --username
+      - root@pam!pve-local
+      - --fingerprint
+      - "{{ core40_cutover_legacy_storage[0].fingerprint }}"
+      - --content
+      - backup
+  register: core40_cutover_pvesm_add
+  changed_when: true
+  when:
+    - core40_storage_central | length == 0
+    - core40_storage_legacy | length == 1
+
+- name: Reuse original private PVE token secret without exposing its value
+  ansible.builtin.copy:
+    src: /etc/pve/priv/storage/pbs-serzhan.pw
+    dest: /etc/pve/priv/storage/pbs-core.pw
+    remote_src: true
+    owner: root
+    group: www-data
+    mode: '0600'
+  no_log: true
+  when: core40_storage_legacy | length == 1
+
+- name: Require the new CORE PVE PBS target is accessible before switching jobs
+  ansible.builtin.command:
+    argv: [pvesm, status, --storage, pbs-core]
+  register: core40_cutover_target_status
+  changed_when: false
+  failed_when: >-
+    core40_cutover_target_status.rc != 0 or
+    not (core40_cutover_target_status.stdout is search('(?m)^pbs-core\\s+pbs\\s+active\\s+'))
+
+- name: Inspect existing verified CORE backup snapshot under new namespace
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, find, /serzhan-pool/pbs-core/ns/dh-core, -maxdepth, '5', -type, f, -name, index.json.blob, -print, -quit]
+  register: core40_cutover_test_before
+  changed_when: false
+
+- name: Make one real CORE CT1241 backup to verify the replacement target
+  ansible.builtin.command:
+    argv: [vzdump, '1241', --storage, pbs-core, --mode, snapshot, --quiet, '1']
+  register: core40_cutover_backup
+  changed_when: true
+  when: >-
+    (core40_cutover_test_before.stdout | default('{}') | from_json)['out-data'] | default('') | trim | length == 0
+
+- name: Read back actual snapshot manifests from isolated dh-core namespace
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, find, /serzhan-pool/pbs-core/ns/dh-core/ct/1241, -maxdepth, '3', -type, f, -name, index.json.blob, -print, -quit]
+  register: core40_cutover_test_after
+  changed_when: false
+
+- name: Refuse changing original backup schedule until the new snapshot exists
+  ansible.builtin.assert:
+    that:
+      - core40_cutover_test_after.rc == 0
+      - (core40_cutover_test_after.stdout | from_json).exitcode | int == 0
+      - >-
+        ((core40_cutover_test_after.stdout | from_json)['out-data'] | trim)
+        is search('index\\.json\\.blob')
+    fail_msg: CORE40_REPLACEMENT_PBS_BACKUP_NOT_VERIFIED
+
+- name: Keep the existing nightly CORE backup running while changing its destination
+  ansible.builtin.command:
+    argv: [pvesh, set, /cluster/backup/dh-local-pbs-serzhan, --storage, pbs-core]
+  changed_when: true
+  when:
+    - core40_cutover_old_jobs | length == 1
+    - core40_cutover_old_jobs[0].storage != 'pbs-core'
+
+- name: Create canonical CORE daily backup schedule with the same 02:00 policy
+  ansible.builtin.command:
+    argv:
+      - pvesh
+      - create
+      - /cluster/backup
+      - --id
+      - dh-core-pbs-daily
+      - --storage
+      - pbs-core
+      - --node
+      - "{{ core40_expected_node }}"
+      - --all
+      - '1'
+      - --exclude
+      - '2243'
+      - --schedule
+      - '02:00'
+      - --mode
+      - snapshot
+      - --notification-mode
+      - notification-system
+      - --remove
+      - '0'
+  changed_when: true
+  when: core40_cutover_new_jobs | length == 0
+
+- name: Confirm canonical CORE backup job exists before removing historical job ID
+  ansible.builtin.command:
+    argv: [pvesh, get, /cluster/backup/dh-core-pbs-daily, --output-format, json]
+  register: core40_cutover_job_final
+  changed_when: false
+
+- name: Require exact canonical 02:00 CORE schedule and correct target
+  ansible.builtin.assert:
+    that:
+      - (core40_cutover_job_final.stdout | from_json).storage == 'pbs-core'
+      - (core40_cutover_job_final.stdout | from_json).enabled | int == 1
+      - (core40_cutover_job_final.stdout | from_json).schedule == '02:00'
+      - "'2243' in (core40_cutover_job_final.stdout | from_json).exclude"
+    fail_msg: CORE40_NEW_DAILY_BACKUP_JOB_NOT_READY
+
+- name: Remove only the old CORE PVE schedule definition
+  ansible.builtin.command:
+    argv: [pvesh, delete, /cluster/backup/dh-local-pbs-serzhan]
+  changed_when: true
+  when: core40_cutover_old_jobs | length == 1
+
+- name: Unregister old CORE PVE storage without deleting PBS data
+  ansible.builtin.command:
+    argv: [pvesm, remove, pbs-serzhan]
+  changed_when: true
+  when: core40_storage_legacy | length == 1
+
+- name: Unregister obsolete CORE PBS datastore WITHOUT destroying the ZFS contents
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, proxmox-backup-manager, datastore, remove, pbs-serzhan, --destroy-data, 'false']
+  register: core40_cutover_pbs_remove
+  changed_when: true
+  failed_when: >-
+    core40_cutover_pbs_remove.rc != 0 or
+    (core40_cutover_pbs_remove.stdout | from_json).exitcode | int != 0
+  when: >-
+    (((core40_cutover_pbs_raw.stdout | from_json)['out-data'] | from_json)
+     | selectattr('name','equalto','pbs-serzhan') | list | length) == 1
+
+- name: Preserve all historical CORE legacy ZFS data in place
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, zfs, list, -H, -o, name, serzhan-pool/pbs-serzhan]
+  register: core40_cutover_preserved_zfs
+  changed_when: false
+  failed_when: >-
+    core40_cutover_preserved_zfs.rc != 0 or
+    (core40_cutover_preserved_zfs.stdout | from_json).exitcode | int != 0 or
+    ((core40_cutover_preserved_zfs.stdout | from_json)['out-data'] | trim) != 'serzhan-pool/pbs-serzhan'
+
+- name: Read final PVE storage configuration
+  ansible.builtin.command:
+    argv: [pvesh, get, /storage, --output-format, json]
+  register: core40_cutover_storage_final
+  changed_when: false
+
+- name: Read final PVE backup schedules
+  ansible.builtin.command:
+    argv: [pvesh, get, /cluster/backup, --output-format, json]
+  register: core40_cutover_jobs_final
+  changed_when: false
+
+- name: Read final PBS datastore configuration
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, proxmox-backup-manager, datastore, list, --output-format, json]
+  register: core40_cutover_pbs_final
+  changed_when: false
+
+- name: Prove CORE uses only central PBS storage and retains the scheduled backup
+  ansible.builtin.assert:
+    that:
+      - >-
+        (core40_cutover_storage_final.stdout | from_json
+         | selectattr('storage', 'equalto', 'pbs-serzhan') | list | length) == 0
+      - >-
+        (core40_cutover_storage_final.stdout | from_json
+         | selectattr('storage', 'equalto', 'pbs-core')
+         | selectattr('namespace', 'equalto', 'dh-core') | list | length) == 1
+      - >-
+        (core40_cutover_jobs_final.stdout | from_json
+         | selectattr('id', 'equalto', 'dh-local-pbs-serzhan') | list | length) == 0
+      - >-
+        (core40_cutover_jobs_final.stdout | from_json
+         | selectattr('id', 'equalto', 'dh-core-pbs-daily') | list | length) == 1
+      - (core40_cutover_pbs_final.stdout | from_json).exitcode | int == 0
+      - >-
+        (((core40_cutover_pbs_final.stdout | from_json)['out-data'] | from_json)
+         | selectattr('name', 'equalto', 'pbs-serzhan') | list | length) == 0
+      - >-
+        (((core40_cutover_pbs_final.stdout | from_json)['out-data'] | from_json)
+         | selectattr('name', 'equalto', 'pbs-core') | list | length) == 1
+    fail_msg: CORE40_PBS_CUTOVER_FINAL_READBACK_FAILED
+
+- name: Report CORE-only PBS cutover and preserved historical data
+  ansible.builtin.debug:
+    msg:
+      - CORE40_ARCHITECTURE_TARGET=pbs-core/dh-core
+      - CORE40_BACKUP_JOB=dh-core-pbs-daily
+      - CORE40_TEST_BACKUP=CT1241_PRESENT
+      - CORE40_PBS_LEGACY_REGISTRATION=REMOVED
+      - CORE40_PVE_LEGACY_STORAGE=REMOVED
+      - CORE40_ZFS_LEGACY_SNAPSHOTS=PRESERVED_NO_DESTROY_DATA
+      - CORE40_HOME=UNCHANGED
