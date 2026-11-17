@@ -1,8 +1,0 @@
-[Unit]
-Description=Update only cloudflared package for dh-core connector
-Wants=network-online.target
-After=network-online.target
-
-[Service]
-Type=oneshot
-ExecStart=/usr/local/sbin/core60-update-cloudflared

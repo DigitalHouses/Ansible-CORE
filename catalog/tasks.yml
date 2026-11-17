@@ -90,7 +90,7 @@ tasks:
           - {name: "Настроить защищённый origin 192.168.11.245:8082 (без смены CF Tunnel)", value: origin-network}
           - {name: "Переключить origin Tunnel dh-core на 192.168.11.245:8082 (DNS не менять)", value: origin-switch}
           - {name: "Обновить DH Stats и dashboard на CORE CT1245 (без изменения БД и CF)", value: update}
-          - {name: "Включить автообновление Cloudflare Tunnel в CT1245 (не трогать DH Stats и БД)", value: update-connector}
+          - {name: "Включить Debian unattended-upgrades только для cloudflared в CT1245 (без изменения Stats и БД)", value: update-connector}
   - name: 71-Tailscale
     playbook: playbooks/core-tailscale.yml
     description: "CORE PVE + PBS: stable Tailscale install/configure/join/update; safe PBS WARP migration completed"

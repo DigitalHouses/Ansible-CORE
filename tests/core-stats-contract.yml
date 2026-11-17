@@ -22,7 +22,7 @@
           - core_resource_standard.stats_octet == 245
           - entry.playbook == 'playbooks/core-stats.yml'
           - entry.survey_vars[0].default_value == 'audit'
-          - entry.survey_vars[0]['values'] | map(attribute='value') | list == ['audit','cf-audit','prepare-tunnel','deploy','diagnose','cutover','countries','origin-network','origin-switch','update']
+          - entry.survey_vars[0]['values'] | map(attribute='value') | list == ['audit','cf-audit','prepare-tunnel','deploy','diagnose','cutover','countries','origin-network','origin-switch','update','update-connector']
           - "'core-resource-standard-assert.yml' in (audit | to_json)"
           - "'pvesh' in (audit | to_json)"
           - "'core60-cloudflare-audit.yml' in (audit | to_json)"
@@ -31,6 +31,7 @@
           - "'core60-cloudflare-cutover.yml' in (audit | to_json)"
           - "'core60-country-report.yml' in (audit | to_json)"
           - "'core60-update-stats.yml' in (audit | to_json)"
+          - "'core60-update-connector.yml' in (audit | to_json)"
           - "'pct, destroy' not in (lookup('ansible.builtin.file', root ~ '/tasks/core60-update-stats.yml'))"
           - "'core60-network-origin.yml' in (audit | to_json)"
           - "'core60-cloudflare-origin-switch.yml' in (audit | to_json)"
@@ -40,6 +41,16 @@
           - "'qm, destroy' not in (audit | to_json)"
           - "'zfs' not in (audit | to_json)"
           - "'POST' not in (audit | to_json)"
+
+    - name: Require Debian native cloudflared updates without custom timers
+      ansible.builtin.assert:
+        that:
+          - "'apt-daily.timer apt-daily-upgrade.timer' in (lookup('ansible.builtin.file', root ~ '/files/core60/install-cloudflared.sh'))"
+          - "'unattended-upgrades' in (lookup('ansible.builtin.file', root ~ '/files/core60/install-cloudflared.sh'))"
+          - "'Package-Whitelist-Strict' in (lookup('ansible.builtin.file', root ~ '/files/core60/cloudflared-unattended.conf'))"
+          - "'origin=cloudflared,site=pkg.cloudflare.com' in (lookup('ansible.builtin.file', root ~ '/files/core60/cloudflared-unattended.conf'))"
+          - "'cloudflared-dh-core.service' in (lookup('ansible.builtin.file', root ~ '/files/core60/cloudflared-unattended.conf'))"
+          - "'cloudflared-dh-core-update.timer' not in (lookup('ansible.builtin.file', root ~ '/tasks/core60-deploy.yml'))"
 
     - name: Require a fresh local DB, no old HOME imports or destructive lifecycle
       ansible.builtin.assert:

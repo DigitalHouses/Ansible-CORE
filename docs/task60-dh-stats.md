@@ -122,12 +122,20 @@ Four other installations were observed in KZ (two Internet App and two Zigbee Mo
 - Existing `dh-core` connector lives in CORE CT1245 (`192.168.11.245`).
 - `cloudflared` was installed from a Debian package; its built-in
   `--autoupdate-freq` flag does not work for package-managed installations.
-- Dedicated CORE №60 action `update-connector` configures the official
-  Cloudflare APT source and a daily systemd timer inside CT1245.
-- Timer upgrades only `cloudflared` and restarts only
-  `cloudflared-dh-core.service` if its package version changed. This can
-  briefly interrupt Cloudflare traffic. It does not reinstall Stats,
-  touch PostgreSQL, modify Tunnel routes, or recreate the CT.
-- New CORE №60 `deploy` also configures the same timer.
-- Deploy through CORE task 60 `update-connector`; no production run of
-  that new action is claimed in this repository note.
+- HOME and CORE share the same Debian-native auto-update mechanism:
+  APT `unattended-upgrades` with existing `apt-daily.timer` and
+  `apt-daily-upgrade.timer`; no Semaphore schedule or custom timer.
+- CORE №60 action `update-connector` configures the official stable
+  Cloudflare APT source and `/etc/apt/apt.conf.d/90-dh-cloudflared-unattended`
+  within CT1245. APT policy permits only the `cloudflared` package from
+  Cloudflare, disables unattended reboot and dependency removal, and runs
+  an upstream `unattended-upgrade --dry-run --debug` check.
+- APT post-invoke restarts only `cloudflared-dh-core.service` when the old
+  process is still using a deleted executable after package replacement.
+  Brief Tunnel reconnection is possible; Stats, PostgreSQL, Tunnel routing,
+  Access, DNS and the CT identity are unaffected by this configuration step.
+- Old custom CORE `cloudflared-dh-core-update.timer` / updater script were
+  removed from the desired configuration. Existing units, if present, are
+  disabled and removed at next `update-connector` or new `deploy`.
+- Deploy through CORE task 60 `update-connector`; actual deployment is
+  recorded separately after a successful Semaphore run.
