@@ -23,8 +23,10 @@
     that:
       - "'hostname: dh-stats-CORE' in core60_existing_config.stdout_lines"
       - "'ostype: debian' in core60_existing_config.stdout_lines"
-      - core60_existing_config.stdout is search('(?m)^net0: name=eth0,bridge=vmbr0,.*ip=192[.]168[.]11[.]245/24')
-      - core60_existing_config.stdout is search('(?m)^rootfs: local-lvm:vm-1245-disk-0,')
+      - >-
+        core60_existing_config.stdout is search('(?m)^net0: name=eth0,bridge=vmbr0,.*ip=192[.]168[.]11[.]245/24')
+      - >-
+        core60_existing_config.stdout is search('(?m)^rootfs: local-lvm:vm-1245-disk-0,')
       - "'unprivileged: 1' in core60_existing_config.stdout_lines"
     fail_msg: CORE60_EXISTING_CT1245_NOT_OWNED_BY_DH_STATS
   when: core60_existing_id | length == 1

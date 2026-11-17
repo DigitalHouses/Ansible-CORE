@@ -37,6 +37,9 @@
     - name: Require a fresh local DB, no old HOME imports or destructive lifecycle
       ansible.builtin.assert:
         that:
+          - >-
+            ((deploy_tasks | selectattr('name', 'equalto', 'Refuse resuming any foreign CT or changed network/disk identity') | first)
+              ['ansible.builtin.assert'].that | map('type_debug') | unique | list) == ['str']
           - "'pct' in (deploy_tasks | to_json)"
           - "'create' in (deploy_tasks | to_json)"
           - "'pct, destroy' not in (deploy_tasks | to_json)"
