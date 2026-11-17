@@ -137,5 +137,12 @@ Four other installations were observed in KZ (two Internet App and two Zigbee Mo
 - Old custom CORE `cloudflared-dh-core-update.timer` / updater script were
   removed from the desired configuration. Existing units, if present, are
   disabled and removed at next `update-connector` or new `deploy`.
-- Deploy through CORE task 60 `update-connector`; actual deployment is
-  recorded separately after a successful Semaphore run.
+- CORE Semaphore №00 Job **#176: SUCCESS** refreshed the survey and included
+  the `update-connector` action without touching active infrastructure.
+- CORE Semaphore №60 Job **#177: SUCCESS** (`update-connector`,
+  `failed=0`): CT1245 configured with Debian unattended-upgrades;
+  `cloudflared-dh-core.service`, `apt-daily.timer`, and
+  `apt-daily-upgrade.timer` active. HOME and other CORE services unchanged.
+  Public `https://telemetry.digitalhouses.vip/healthz` returned **HTTP 200**
+  after deployment. The next stable cloudflared release has not yet been
+  observed applying automatically; that remains subject to upstream release timing.
