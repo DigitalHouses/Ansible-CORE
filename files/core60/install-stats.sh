@@ -78,9 +78,17 @@ systemctl daemon-reload
 systemctl enable --now digitalhouses-stats digitalhouses-stats-dashboard-api nginx
 systemctl restart digitalhouses-stats digitalhouses-stats-dashboard-api nginx
 
-curl -fsS --max-time 8 http://127.0.0.1:8080/healthz
-curl -fsS --max-time 8 http://127.0.0.1:8081/healthz
-curl -fsS --max-time 8 http://192.168.11.245/healthz
+for url in http://127.0.0.1:8080/healthz http://127.0.0.1:8081/healthz http://192.168.11.245/healthz; do
+  ready=0
+  for attempt in $(seq 1 20); do
+    if curl -fsS --max-time 4 "$url" >/dev/null 2>&1; then
+      ready=1
+      break
+    fi
+    sleep 1
+  done
+  [[ $ready == 1 ]] || { echo "CORE60_HEALTH_FAILED=$url" >&2; exit 2; }
+done
 pg_isready -h 127.0.0.1 -p 5432
 runuser -u postgres -- psql -d digitalhouses_stats -Atc 'SELECT COUNT(*) FROM installations;' >/dev/null
 runuser -u postgres -- psql -d digitalhouses_stats -Atc 'SELECT COUNT(*) FROM heartbeats;' >/dev/null
