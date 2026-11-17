@@ -14,7 +14,7 @@
     - name: Refuse any deployment or a foreign PVE site
       ansible.builtin.assert:
         that:
-          - core60_action == 'audit'
+          - core60_action in ['audit', 'cf-audit']
           - pve.ipv4 == '192.168.11.240'
           - (core_stats_ctid | int) == 1245
           - core_resource_standard.stats_ct_name == 'dh-stats-CORE'
@@ -33,6 +33,10 @@
       register: core60_public_health
       changed_when: false
       failed_when: false
+
+    - name: Audit Cloudflare zone, tunnel and existing DNS route without changes
+      ansible.builtin.include_tasks: ../tasks/core60-cloudflare-audit.yml
+      when: core60_action == 'cf-audit'
 
     - name: Register only the trusted CORE PVE read-only audit target
       ansible.builtin.add_host:
@@ -102,6 +106,21 @@
           - (core_stats_ctid | int) == (core_resource_standard.ct_offset | int) + (core_resource_standard.stats_octet | int)
         fail_msg: CORE60_PVE_LAN_OR_ID_DRIFT
 
+    - name: Determine whether arping is available on CORE PVE
+      ansible.builtin.command:
+        argv: [sh, -c, 'command -v arping']
+      register: core60_arping_binary
+      changed_when: false
+      failed_when: false
+
+    - name: Probe for live CORE LAN address collision via ARP duplicate-address detection
+      ansible.builtin.command:
+        argv: [arping, -D, -I, vmbr0, -c, '3', -w, '4', '192.168.11.245']
+      register: core60_arping_probe
+      changed_when: false
+      failed_when: false
+      when: core60_arping_binary.rc == 0
+
     - name: Report audit-only DH Stats migration readiness
       ansible.builtin.debug:
         msg:
@@ -115,6 +134,6 @@
           - "CORE60_PUBLIC_TELEMETRY={{ 'HEALTHY' if core60_public_ok | bool else 'UNVERIFIED' }}"
           - CORE60_CF_ORIGIN=NOT_VERIFIED
           - CORE60_HOME_CT7000=NOT_TOUCHED
-          - CORE60_IP_LAN_OCCUPANCY=NOT_VERIFIED_BY_PVE_GUEST_IDS
+          - "CORE60_IP_LAN_OCCUPANCY={{ 'CLEAR_BY_ARPING_DAD' if core60_arping_binary.rc == 0 and core60_arping_probe.rc | default(1) == 0 else ('CONFLICT_BY_ARPING_DAD' if core60_arping_binary.rc == 0 else 'ARPING_NOT_INSTALLED') }}"
           - CORE60_DB_BACKUP_AND_TUNNEL_CUTOVER=NOT_STARTED
           - CORE60_DEPLOY=NOT_PERFORMED

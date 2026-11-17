@@ -1,0 +1,66 @@
+---
+# Cloudflare API read-only audit. Secrets come only from CORE Semaphore #05.
+- name: Require existing verified CORE Cloudflare API token
+  ansible.builtin.assert:
+    that:
+      - DH_CLOUDFLARE_API_TOKEN | default('') | length > 15
+    fail_msg: CORE60_CLOUDFLARE_TOKEN_MISSING_RUN_CORE05
+  no_log: true
+
+- name: Read zone metadata for the existing telemetry domain
+  ansible.builtin.uri:
+    url: https://api.cloudflare.com/client/v4/zones?name=digitalhouses.vip
+    headers:
+      Authorization: "Bearer {{ DH_CLOUDFLARE_API_TOKEN }}"
+    method: GET
+    return_content: true
+    use_proxy: false
+  register: core60_cf_zones
+  no_log: true
+
+- name: Require exactly one existing DigitalHouses Cloudflare zone
+  ansible.builtin.assert:
+    that:
+      - core60_cf_zones.json.success | default(false) | bool
+      - core60_cf_zones.json.result | length == 1
+      - core60_cf_zones.json.result[0].name == 'digitalhouses.vip'
+    fail_msg: CORE60_CLOUDFLARE_ZONE_NOT_ACCESSIBLE
+
+- name: Derive zone and account identifiers from Cloudflare response
+  ansible.builtin.set_fact:
+    core60_cf_zone_id: "{{ core60_cf_zones.json.result[0].id }}"
+    core60_cf_account_id: "{{ core60_cf_zones.json.result[0].account.id }}"
+  no_log: true
+
+- name: Read existing DH CORE Cloudflare Tunnel entries
+  ansible.builtin.uri:
+    url: "https://api.cloudflare.com/client/v4/accounts/{{ core60_cf_account_id }}/cfd_tunnel?name=dh-core&is_deleted=false"
+    headers:
+      Authorization: "Bearer {{ DH_CLOUDFLARE_API_TOKEN }}"
+    method: GET
+    return_content: true
+    use_proxy: false
+  register: core60_cf_tunnels
+  no_log: true
+
+- name: Read existing public telemetry DNS route metadata
+  ansible.builtin.uri:
+    url: "https://api.cloudflare.com/client/v4/zones/{{ core60_cf_zone_id }}/dns_records?name=telemetry.digitalhouses.vip"
+    headers:
+      Authorization: "Bearer {{ DH_CLOUDFLARE_API_TOKEN }}"
+    method: GET
+    return_content: true
+    use_proxy: false
+  register: core60_cf_dns
+  no_log: true
+
+- name: Summarize current Cloudflare privileges and route, without credentials
+  ansible.builtin.debug:
+    msg:
+      - CORE60_CF_ZONE=digitalhouses.vip
+      - "CORE60_CF_ACCOUNT={{ core60_cf_account_id }}"
+      - "CORE60_CF_TUNNEL_DH_CORE={{ 'PRESENT' if (core60_cf_tunnels.json.result | default([]) | selectattr('name', 'equalto', 'dh-core') | list | length) == 1 else 'ABSENT' }}"
+      - "CORE60_CF_TELEMETRY_DNS_COUNT={{ core60_cf_dns.json.result | default([]) | length }}"
+      - "CORE60_CF_TELEMETRY_DNS_TYPES={{ core60_cf_dns.json.result | default([]) | map(attribute='type') | list | join(',') }}"
+      - "CORE60_CF_TELEMETRY_DNS_CURRENT_ORIGIN={{ core60_cf_dns.json.result | default([]) | map(attribute='content') | list | join(',') }}"
+      - CORE60_CF_ACTION=READ_ONLY

@@ -81,6 +81,7 @@ tasks:
         default_value: audit
         values:
           - {name: "Проверить CORE CT1245 и публичную телеметрию (без изменений)", value: audit}
+          - {name: "Проверить Cloudflare zone/DNS/Tunnel для dh-core (только чтение)", value: cf-audit}
   - name: 71-Tailscale
     playbook: playbooks/core-tailscale.yml
     description: "CORE PVE + PBS: stable Tailscale install/configure/join/update; safe PBS WARP migration completed"
