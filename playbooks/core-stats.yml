@@ -14,7 +14,7 @@
     - name: Refuse any deployment or a foreign PVE site
       ansible.builtin.assert:
         that:
-          - core60_action in ['audit', 'cf-audit', 'prepare-tunnel', 'deploy', 'diagnose', 'cutover']
+          - core60_action in ['audit', 'cf-audit', 'prepare-tunnel', 'deploy', 'diagnose', 'cutover', 'countries']
           - pve.ipv4 == '192.168.11.240'
           - (core_stats_ctid | int) == 1245
           - core_resource_standard.stats_ct_name == 'dh-stats-CORE'
@@ -153,6 +153,10 @@
       changed_when: false
       failed_when: false
       when: core60_arping_binary.rc == 0
+
+    - name: Query foreign telemetry products grouped by country and version
+      ansible.builtin.include_tasks: ../tasks/core60-country-report.yml
+      when: core60_action == 'countries'
 
     - name: Diagnose only the dedicated CT1245 after an installation failure
       ansible.builtin.include_tasks: ../tasks/core60-diagnose.yml

@@ -1,0 +1,48 @@
+---
+- name: Require only the canonical CORE DH Stats CT1245
+  ansible.builtin.assert:
+    that:
+      - core60_existing_id | length == 1
+      - core60_existing_id[0].name == 'dh-stats-CORE'
+    fail_msg: CORE60_COUNTRY_AUDIT_GUEST_NOT_FOUND
+
+- name: Read latest product and version by country without installation identifiers
+  ansible.builtin.command:
+    argv:
+      - pct
+      - exec
+      - '1245'
+      - --
+      - runuser
+      - -u
+      - postgres
+      - --
+      - psql
+      - -d
+      - digitalhouses_stats
+      - -A
+      - -t
+      - -F
+      - '|'
+      - -c
+      - >-
+        WITH latest AS (
+          SELECT DISTINCT ON (product, installation_id)
+            country, product, version, received_at
+          FROM heartbeats
+          ORDER BY product, installation_id, received_at DESC, id DESC
+        )
+        SELECT country, product, version, COUNT(*) AS installs,
+               MAX(received_at) AS last_seen_utc
+        FROM latest
+        GROUP BY country, product, version
+        ORDER BY country, product, version;
+  register: core60_country_rows
+  changed_when: false
+
+- name: Print aggregate country and product statistics without identities
+  ansible.builtin.debug:
+    msg:
+      - CORE60_COUNTRY_AUDIT=PASS
+      - CORE60_FIELDS=country|product|version|installations|last_seen_utc
+      - "{{ core60_country_rows.stdout_lines }}"
