@@ -85,6 +85,7 @@ tasks:
           - {name: "Создать отдельный CF Tunnel dh-core без переключения DNS", value: prepare-tunnel}
           - {name: "Установить чистый CORE CT1245/DH Stats+PostgreSQL+connector, без переключения DNS", value: deploy}
           - {name: "Диагностика CT1245 после установки (только чтение)", value: diagnose}
+          - {name: "Переключить telemetry.digitalhouses.vip на новый dh-core Tunnel после проверки", value: cutover}
   - name: 71-Tailscale
     playbook: playbooks/core-tailscale.yml
     description: "CORE PVE + PBS: stable Tailscale install/configure/join/update; safe PBS WARP migration completed"

@@ -14,7 +14,7 @@
     - name: Refuse any deployment or a foreign PVE site
       ansible.builtin.assert:
         that:
-          - core60_action in ['audit', 'cf-audit', 'prepare-tunnel', 'deploy', 'diagnose']
+          - core60_action in ['audit', 'cf-audit', 'prepare-tunnel', 'deploy', 'diagnose', 'cutover']
           - pve.ipv4 == '192.168.11.240'
           - (core_stats_ctid | int) == 1245
           - core_resource_standard.stats_ct_name == 'dh-stats-CORE'
@@ -36,11 +36,15 @@
 
     - name: Audit Cloudflare zone, tunnel and existing DNS route without changes
       ansible.builtin.include_tasks: ../tasks/core60-cloudflare-audit.yml
-      when: core60_action in ['cf-audit', 'prepare-tunnel', 'deploy']
+      when: core60_action in ['cf-audit', 'prepare-tunnel', 'deploy', 'cutover']
 
     - name: Create the dedicated dh-core Tunnel without touching public DNS
       ansible.builtin.include_tasks: ../tasks/core60-cloudflare-prepare.yml
       when: core60_action == 'prepare-tunnel'
+
+    - name: Switch only telemetry.digitalhouses.vip after verifying CORE connector
+      ansible.builtin.include_tasks: ../tasks/core60-cloudflare-cutover.yml
+      when: core60_action == 'cutover'
 
     - name: Retrieve only dedicated dh-core connector token for guest installation
       ansible.builtin.uri:
