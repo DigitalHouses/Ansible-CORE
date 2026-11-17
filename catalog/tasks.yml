@@ -88,6 +88,7 @@ tasks:
           - {name: "Переключить telemetry.digitalhouses.vip на новый dh-core Tunnel после проверки", value: cutover}
           - {name: "Показать страны и версии установленных агентов (только чтение)", value: countries}
           - {name: "Настроить защищённый origin 192.168.11.245:8082 (без смены CF Tunnel)", value: origin-network}
+          - {name: "Переключить origin Tunnel dh-core на 192.168.11.245:8082 (DNS не менять)", value: origin-switch}
   - name: 71-Tailscale
     playbook: playbooks/core-tailscale.yml
     description: "CORE PVE + PBS: stable Tailscale install/configure/join/update; safe PBS WARP migration completed"

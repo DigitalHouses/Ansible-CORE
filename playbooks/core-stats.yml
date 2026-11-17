@@ -14,7 +14,7 @@
     - name: Refuse any deployment or a foreign PVE site
       ansible.builtin.assert:
         that:
-          - core60_action in ['audit', 'cf-audit', 'prepare-tunnel', 'deploy', 'diagnose', 'cutover', 'countries', 'origin-network']
+          - core60_action in ['audit', 'cf-audit', 'prepare-tunnel', 'deploy', 'diagnose', 'cutover', 'countries', 'origin-network', 'origin-switch']
           - pve.ipv4 == '192.168.11.240'
           - (core_stats_ctid | int) == 1245
           - core_resource_standard.stats_ct_name == 'dh-stats-CORE'
@@ -36,7 +36,7 @@
 
     - name: Audit Cloudflare zone, tunnel and existing DNS route without changes
       ansible.builtin.include_tasks: ../tasks/core60-cloudflare-audit.yml
-      when: core60_action in ['cf-audit', 'prepare-tunnel', 'deploy', 'cutover']
+      when: core60_action in ['cf-audit', 'prepare-tunnel', 'deploy', 'cutover', 'origin-switch']
 
     - name: Create the dedicated dh-core Tunnel without touching public DNS
       ansible.builtin.include_tasks: ../tasks/core60-cloudflare-prepare.yml
@@ -45,6 +45,10 @@
     - name: Switch only telemetry.digitalhouses.vip after verifying CORE connector
       ansible.builtin.include_tasks: ../tasks/core60-cloudflare-cutover.yml
       when: core60_action == 'cutover'
+
+    - name: Switch existing dh-core Tunnel origin to full CORE LAN address
+      ansible.builtin.include_tasks: ../tasks/core60-cloudflare-origin-switch.yml
+      when: core60_action == 'origin-switch'
 
     - name: Retrieve only dedicated dh-core connector token for guest installation
       ansible.builtin.uri:
@@ -181,7 +185,7 @@
           - "CORE60_CTID={{ 'AVAILABLE_IN_PVE' if not (core60_existing_id | length) else ('OWN_DH_STATS' if core60_existing_id[0].name == core_resource_standard.stats_ct_name else 'FOREIGN_CONFLICT') }}"
           - "CORE60_PVE_NAME={{ 'AVAILABLE_IN_PVE' if not (core60_existing_name | length) else ('OWN_DH_STATS' if core60_existing_name[0].vmid | int == core_stats_ctid | int else 'FOREIGN_CONFLICT') }}"
           - "CORE60_PUBLIC_TELEMETRY={{ 'HEALTHY' if core60_public_ok | bool else 'UNVERIFIED' }}"
-          - "CORE60_CF_ORIGIN={{ 'VERIFIED_IN_RUNNER' if core60_action in ['cf-audit', 'prepare-tunnel', 'deploy', 'cutover'] else 'NOT_QUERIED' }}"
+          - "CORE60_CF_ORIGIN={{ 'VERIFIED_IN_RUNNER' if core60_action in ['cf-audit', 'prepare-tunnel', 'deploy', 'cutover', 'origin-switch'] else 'NOT_QUERIED' }}"
           - CORE60_HOME_CT7000=NOT_TOUCHED
           - "CORE60_IP_LAN_OCCUPANCY={{ 'OWN_CT_PRESENT' if (core60_existing_id | length) == 1 and core60_existing_id[0].name == core_resource_standard.stats_ct_name else ('CLEAR_BY_ARPING_DAD' if core60_arping_binary.rc == 0 and (core60_arping_probe.rc | default(1)) == 0 else ('CONFLICT_BY_ARPING_DAD' if core60_arping_binary.rc == 0 else 'ARPING_NOT_INSTALLED')) }}"
           - CORE60_DB_MIGRATION=NOT_APPLICABLE_FRESH_DATABASE

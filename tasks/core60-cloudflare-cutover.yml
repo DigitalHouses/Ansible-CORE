@@ -86,7 +86,7 @@
       config:
         ingress:
           - hostname: telemetry.digitalhouses.vip
-            service: http://127.0.0.1:8080
+            service: http://192.168.11.245:8082
             originRequest: {}
           - service: 'http_status:404'
     status_code: [200, 201]

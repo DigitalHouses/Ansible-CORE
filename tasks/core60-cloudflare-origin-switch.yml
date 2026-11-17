@@ -1,0 +1,145 @@
+---
+# Change only the dh-core Tunnel ingress service URL; do not touch DNS or HOME.
+- name: Require existing sole dh-core Tunnel and its already migrated DNS target
+  ansible.builtin.assert:
+    that:
+      - core60_cf_tunnels.json.result | length == 1
+      - core60_cf_tunnels.json.result[0].name == 'dh-core'
+      - core60_cf_dns.json.result | length == 1
+      - core60_cf_dns.json.result[0].name == 'telemetry.digitalhouses.vip'
+      - core60_cf_dns.json.result[0].content == core60_cf_tunnels.json.result[0].id ~ '.cfargotunnel.com'
+    fail_msg: CORE60_ORIGIN_SWITCH_WRONG_TUNNEL_OR_DNS
+
+- name: Confirm the protected network origin rejects nonlocal clients
+  ansible.builtin.uri:
+    url: http://192.168.11.245:8082/healthz
+    method: GET
+    status_code: 403
+    use_proxy: false
+    timeout: 8
+  changed_when: false
+
+- name: Require existing Tunnel is healthy at Cloudflare before changing ingress
+  ansible.builtin.uri:
+    url: "https://api.cloudflare.com/client/v4/accounts/{{ core60_cf_account_id }}/cfd_tunnel/{{ core60_cf_tunnels.json.result[0].id }}"
+    headers:
+      Authorization: "Bearer {{ DH_CLOUDFLARE_API_TOKEN }}"
+    method: GET
+    use_proxy: false
+  register: core60_origin_cf_health
+  no_log: true
+
+- name: Require a running and healthy Cloudflare connector
+  ansible.builtin.assert:
+    that:
+      - core60_origin_cf_health.json.success | default(false) | bool
+      - core60_origin_cf_health.json.result.status == 'healthy'
+    fail_msg: CORE60_ORIGIN_CONNECTOR_NOT_HEALTHY
+
+- name: Get existing dh-core ingress configuration for rollback
+  ansible.builtin.uri:
+    url: "https://api.cloudflare.com/client/v4/accounts/{{ core60_cf_account_id }}/cfd_tunnel/{{ core60_cf_tunnels.json.result[0].id }}/configurations"
+    headers:
+      Authorization: "Bearer {{ DH_CLOUDFLARE_API_TOKEN }}"
+    method: GET
+    use_proxy: false
+  register: core60_origin_previous_cf_config
+  no_log: true
+
+- name: Ensure no unrelated ingress will be overwritten
+  ansible.builtin.assert:
+    that:
+      - core60_origin_previous_cf_config.json.success | default(false) | bool
+      - >-
+        (core60_origin_previous_cf_config.json.result.config.ingress | default([])
+         | selectattr('hostname', 'defined')
+         | rejectattr('hostname', 'equalto', 'telemetry.digitalhouses.vip') | list | length) == 0
+    fail_msg: CORE60_ORIGIN_REFUSES_OTHER_INGRESS
+
+- name: Save original ingress and exact LAN destination
+  ansible.builtin.set_fact:
+    core60_origin_old_config: "{{ core60_origin_previous_cf_config.json.result.config }}"
+    core60_origin_new_url: http://192.168.11.245:8082
+    core60_origin_new_ingress:
+      - hostname: telemetry.digitalhouses.vip
+        service: http://192.168.11.245:8082
+        originRequest: {}
+      - service: 'http_status:404'
+  no_log: true
+
+- name: Switch only the Tunnel origin, auto-restore ingress on verification failure
+  block:
+    - name: Update only dh-core remote tunnel ingress with full network address
+      ansible.builtin.uri:
+        url: "https://api.cloudflare.com/client/v4/accounts/{{ core60_cf_account_id }}/cfd_tunnel/{{ core60_cf_tunnels.json.result[0].id }}/configurations"
+        headers:
+          Authorization: "Bearer {{ DH_CLOUDFLARE_API_TOKEN }}"
+        method: PUT
+        body_format: json
+        body:
+          config: "{{ core60_origin_old_config | combine({'ingress': core60_origin_new_ingress}, recursive=true) }}"
+        status_code: [200, 201]
+        use_proxy: false
+      no_log: true
+      when: (core60_origin_old_config.ingress | default([])) != core60_origin_new_ingress
+
+    - name: Read back Cloudflare destination from its API
+      ansible.builtin.uri:
+        url: "https://api.cloudflare.com/client/v4/accounts/{{ core60_cf_account_id }}/cfd_tunnel/{{ core60_cf_tunnels.json.result[0].id }}/configurations"
+        headers:
+          Authorization: "Bearer {{ DH_CLOUDFLARE_API_TOKEN }}"
+        method: GET
+        use_proxy: false
+      register: core60_origin_cf_after
+      no_log: true
+
+    - name: Require exact LAN address and public 404 fallback in Cloudflare readback
+      ansible.builtin.assert:
+        that:
+          - core60_origin_cf_after.json.success | default(false) | bool
+          - core60_origin_cf_after.json.result.config.ingress[0].hostname == 'telemetry.digitalhouses.vip'
+          - core60_origin_cf_after.json.result.config.ingress[0].service == core60_origin_new_url
+          - core60_origin_cf_after.json.result.config.ingress[1].service == 'http_status:404'
+        fail_msg: CORE60_ORIGIN_CF_READBACK_NOT_CANONICAL
+
+    - name: Verify public telemetry endpoint after network-origin switch
+      ansible.builtin.uri:
+        url: https://telemetry.digitalhouses.vip/healthz
+        method: GET
+        timeout: 8
+        return_content: true
+        use_proxy: false
+      register: core60_origin_public_health
+      changed_when: false
+      retries: 6
+      delay: 3
+      until: (core60_origin_public_health.status | default(0)) == 200 and (core60_origin_public_health.json.status | default('')) == 'ok'
+
+  rescue:
+    - name: Restore previous dh-core Tunnel ingress in Cloudflare
+      ansible.builtin.uri:
+        url: "https://api.cloudflare.com/client/v4/accounts/{{ core60_cf_account_id }}/cfd_tunnel/{{ core60_cf_tunnels.json.result[0].id }}/configurations"
+        headers:
+          Authorization: "Bearer {{ DH_CLOUDFLARE_API_TOKEN }}"
+        method: PUT
+        body_format: json
+        body:
+          config: "{{ core60_origin_old_config }}"
+        status_code: [200, 201]
+        use_proxy: false
+      no_log: true
+
+    - name: Fail explicitly after automatic Cloudflare ingress restoration
+      ansible.builtin.fail:
+        msg: CORE60_ORIGIN_SWITCH_FAILED_ROLLED_BACK
+
+- name: Report confirmed full LAN Cloudflare origin, unchanged DNS and isolated dashboard
+  ansible.builtin.debug:
+    msg:
+      - CORE60_CF_ORIGIN_SWITCH=PASS
+      - CORE60_CF_TUNNEL=dh-core
+      - CORE60_CF_ORIGIN=http://192.168.11.245:8082
+      - CORE60_CF_UPSTREAM=127.0.0.1:8080
+      - CORE60_CF_DNS=UNCHANGED
+      - CORE60_HOME=UNTOUCHED
+      - CORE60_PUBLIC_HEALTH=HTTP_200
