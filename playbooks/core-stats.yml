@@ -14,7 +14,7 @@
     - name: Refuse any deployment or a foreign PVE site
       ansible.builtin.assert:
         that:
-          - core60_action in ['audit', 'cf-audit']
+          - core60_action in ['audit', 'cf-audit', 'prepare-tunnel']
           - pve.ipv4 == '192.168.11.240'
           - (core_stats_ctid | int) == 1245
           - core_resource_standard.stats_ct_name == 'dh-stats-CORE'
@@ -36,7 +36,11 @@
 
     - name: Audit Cloudflare zone, tunnel and existing DNS route without changes
       ansible.builtin.include_tasks: ../tasks/core60-cloudflare-audit.yml
-      when: core60_action == 'cf-audit'
+      when: core60_action in ['cf-audit', 'prepare-tunnel']
+
+    - name: Create the dedicated dh-core Tunnel without touching public DNS
+      ansible.builtin.include_tasks: ../tasks/core60-cloudflare-prepare.yml
+      when: core60_action == 'prepare-tunnel'
 
     - name: Register only the trusted CORE PVE read-only audit target
       ansible.builtin.add_host:

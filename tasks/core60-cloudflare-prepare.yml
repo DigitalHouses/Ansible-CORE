@@ -1,0 +1,48 @@
+---
+# Create/reuse only dedicated Cloudflare Tunnel dh-core.
+# No DNS routing, no changes to legacy HOME tunnel.
+- name: Require exact tunnel-name vacancy or existing single owned tunnel
+  ansible.builtin.assert:
+    that:
+      - core60_cf_tunnels.json.success | default(false) | bool
+      - core60_cf_tunnels.json.result | length <= 1
+      - core60_cf_tunnels.json.result | length == 0 or core60_cf_tunnels.json.result[0].name == 'dh-core'
+    fail_msg: CORE60_CLOUDFLARE_TUNNEL_AMBIGUOUS
+
+- name: Create only new Cloudflare remote-managed tunnel dh-core
+  ansible.builtin.uri:
+    url: "https://api.cloudflare.com/client/v4/accounts/{{ core60_cf_account_id }}/cfd_tunnel"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ DH_CLOUDFLARE_API_TOKEN }}"
+    body_format: json
+    body:
+      name: dh-core
+      config_src: cloudflare
+    status_code: [200, 201]
+    return_content: true
+    use_proxy: false
+  register: core60_cf_new_tunnel
+  when: core60_cf_tunnels.json.result | length == 0
+  no_log: true
+
+- name: Require successful tunnel creation with exact identity
+  ansible.builtin.assert:
+    that:
+      - core60_cf_new_tunnel.json.success | default(false) | bool
+      - core60_cf_new_tunnel.json.result.name == 'dh-core'
+      - core60_cf_new_tunnel.json.result.id is match('^[0-9a-f-]{36}$')
+    fail_msg: CORE60_CF_NEW_TUNNEL_CREATION_FAILED
+  when: core60_cf_tunnels.json.result | length == 0
+  no_log: true
+
+- name: Report dedicated Cloudflare Tunnel prepared without public cutover
+  ansible.builtin.debug:
+    msg:
+      - "CORE60_CF_TUNNEL_NAME=dh-core"
+      - "CORE60_CF_TUNNEL_ID={{ core60_cf_new_tunnel.json.result.id if (core60_cf_tunnels.json.result | length) == 0 else core60_cf_tunnels.json.result[0].id }}"
+      - "CORE60_CF_TUNNEL_CREATED={{ (core60_cf_tunnels.json.result | length) == 0 }}"
+      - CORE60_CF_DNS=UNCHANGED
+      - CORE60_CF_OLD_TUNNEL=UNCHANGED
+      - CORE60_CF_CONNECTOR=NOT_INSTALLED
+      - CORE60_CF_ROUTE=NOT_CONFIGURED
