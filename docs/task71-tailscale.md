@@ -238,5 +238,7 @@ Read-only инспекция показала, что VM2243 — совмещё�
 - Earlier weekly Semaphore schedule ID 1 was deleted through CORE Semaphore API
   on 17.11.2026 (DELETE returned HTTP 204); a subsequent GET returned zero
   schedules. Only native Tailscale updates are intended.
-- To apply on current servers, use CORE task 71 `configure` targeting `both`.
-  Package replacement is not performed by `configure`.
+- Applied to both live nodes via CORE №71 Job #175 on 17.11.2026:
+  `configure/both`, `success`, `failed=0`, CORE PVE and PBS Tailscale
+  `Running` on version `1.104.7`, DNS and default routes unchanged.
+  This enables the built-in updater without a weekly Semaphore schedule.
