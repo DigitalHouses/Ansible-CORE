@@ -218,9 +218,9 @@ Read-only инспекция показала, что VM2243 — совмещё�
   default routes and local DNS unchanged.
 - CORE №71 Job #79: `update/both`, `success changed=0 failed=0`;
   оба клиента `1.104.7`, после update соединение `Running`.
-- Создан Semaphore Schedule **ID 1**,
+- Исторически создан Semaphore Schedule **ID 1**,
   `71-Tailscale Weekly Stable Update (CORE PVE + PBS)`,
-  `active=true`, `template_id=5`.
+  `template_id=5`. Удалён 17.11.2026: перешли на native Tailscale auto-update.
   Cron `0 23 * * 6` UTC = воскресенье **04:00 Asia/Almaty**.
   `task_params.environment` сохранён как
   `DH_CORE71_ACTION=update`, `DH_CORE71_TARGET=both`.
@@ -235,8 +235,8 @@ Read-only инспекция показала, что VM2243 — совмещё�
   stable Tailscale updater with `--auto-update=true`.
 - The CORE Media PBS fresh-import path enables the same setting after identity
   restore. DNS/default route preferences stay unchanged.
-- The earlier weekly Semaphore `71/update/both` schedule is historical and
-  remains configured until separately changed; built-in updates can occur
-  outside that schedule. No schedule change is part of this code patch.
+- Earlier weekly Semaphore schedule ID 1 was deleted through CORE Semaphore API
+  on 17.11.2026 (DELETE returned HTTP 204); a subsequent GET returned zero
+  schedules. Only native Tailscale updates are intended.
 - To apply on current servers, use CORE task 71 `configure` targeting `both`.
   Package replacement is not performed by `configure`.
