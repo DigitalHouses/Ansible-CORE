@@ -53,3 +53,17 @@ CORE Semaphore №60 Job **#145** — **Success, changed=0**, исключите
 - CORE №60 #158/#160: повторная установка; выявлены два пункта контроля — синтаксис ownership assert и ожидание готовности FastAPI сразу после рестарта. Код исправлен с сохранением CT.
 - CORE №60 **#162: Success**, `CORE60_DEPLOY=PASS`: PostgreSQL с новой базой, ingestion `127.0.0.1:8080`, dashboard `192.168.11.245:80`, nginx, dashboard API, CF connector `cloudflared-dh-core` — **все пять сервисов active**. Старую базу не копировали.
 - Подготовлен отдельный `cutover` с preflight нового соединения, единственной CNAME записью и возвратом старой DNS-записи в случае неуспешной проверки. До успешного cutover старый публичный маршрут действует.
+
+## Состояние после Cloudflare cutover — 17.11.2026
+
+CORE Semaphore №60 Job **#164 — Success**, `changed=0` на PVE:
+
+- Новый tunnel `dh-core` признан Cloudflare `healthy`.
+- Установлена единственная ingress route `telemetry.digitalhouses.vip` → `http://127.0.0.1:8080` внутри CT1245, fallback `http_status:404`.
+- Единственная существующая Cloudflare DNS CNAME переназначена со старого `a069378e-d11f-479d-90c9-c560460d39e7.cfargotunnel.com` на `ef829b9e-c410-4b5b-a754-85ab01b9d31b.cfargotunnel.com` с проверкой Cloudflare API и публичного HTTP 200.
+- Старый Tunnel не удалялся; HOME и старый PostgreSQL не изменены.
+- Публичный `GET /healthz` → `200`, `GET /openapi.json` → `DigitalHouses Stats 0.4.1`, `GET /api/summary` → `404` (dashboard недоступен через интернет).
+- LAN dashboard `http://192.168.11.245/api/summary` показал **1 настоящую установку и 1 heartbeat** (UTC 2026-11-17T13:09:23), что подтверждает запись нового сервиса в чистую PostgreSQL.
+- Дополнительный синтетический POST с `telemetry_policy_version=2`, выполненный вскоре после смены DNS, получил `422`; поэтому полная проверка обеих policy-версий **не подтверждена**. Запрос не записал тестовых данных. Репозиторий продукта допускает v1/v2; возможное влияние момента обновления маршрута не исключено.
+
+Теперь целевое состояние CORE Stats достигнуто без переноса истории. Тестовый DELETE не выполнялся, поскольку тестовый POST завершился 422 и ничего не создал.

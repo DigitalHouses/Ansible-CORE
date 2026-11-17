@@ -170,11 +170,12 @@
           - "CORE60_TARGET_CTID={{ core_stats_ctid }}"
           - "CORE60_TARGET_LABEL={{ core_resource_standard.stats_ct_name }}"
           - "CORE60_TARGET_IPV4={{ (core60_pve_lan_raw.stdout | regex_findall('inet ([0-9.]+)/24') | first).split('.')[:3] | join('.') }}.{{ core_resource_standard.stats_octet }}"
-          - "CORE60_CTID={{ 'CONFLICT' if core60_existing_id | length else 'AVAILABLE_IN_PVE' }}"
-          - "CORE60_PVE_NAME={{ 'CONFLICT' if core60_existing_name | length else 'AVAILABLE_IN_PVE' }}"
+          - "CORE60_CTID={{ 'AVAILABLE_IN_PVE' if not (core60_existing_id | length) else ('OWN_DH_STATS' if core60_existing_id[0].name == core_resource_standard.stats_ct_name else 'FOREIGN_CONFLICT') }}"
+          - "CORE60_PVE_NAME={{ 'AVAILABLE_IN_PVE' if not (core60_existing_name | length) else ('OWN_DH_STATS' if core60_existing_name[0].vmid | int == core_stats_ctid | int else 'FOREIGN_CONFLICT') }}"
           - "CORE60_PUBLIC_TELEMETRY={{ 'HEALTHY' if core60_public_ok | bool else 'UNVERIFIED' }}"
-          - CORE60_CF_ORIGIN=NOT_VERIFIED
+          - "CORE60_CF_ORIGIN={{ 'VERIFIED_IN_RUNNER' if core60_action in ['cf-audit', 'prepare-tunnel', 'deploy', 'cutover'] else 'NOT_QUERIED' }}"
           - CORE60_HOME_CT7000=NOT_TOUCHED
-          - "CORE60_IP_LAN_OCCUPANCY={{ 'CLEAR_BY_ARPING_DAD' if core60_arping_binary.rc == 0 and core60_arping_probe.rc | default(1) == 0 else ('CONFLICT_BY_ARPING_DAD' if core60_arping_binary.rc == 0 else 'ARPING_NOT_INSTALLED') }}"
-          - CORE60_DB_BACKUP_AND_TUNNEL_CUTOVER=NOT_STARTED
+          - "CORE60_IP_LAN_OCCUPANCY={{ 'OWN_CT_PRESENT' if (core60_existing_id | length) == 1 and core60_existing_id[0].name == core_resource_standard.stats_ct_name else ('CLEAR_BY_ARPING_DAD' if core60_arping_binary.rc == 0 and (core60_arping_probe.rc | default(1)) == 0 else ('CONFLICT_BY_ARPING_DAD' if core60_arping_binary.rc == 0 else 'ARPING_NOT_INSTALLED')) }}"
+          - CORE60_DB_MIGRATION=NOT_APPLICABLE_FRESH_DATABASE
+          - "CORE60_CF_CUTOVER={{ 'COMPLETED' if core60_action == 'cutover' else 'NOT_PART_OF_THIS_ACTION' }}"
           - "CORE60_DEPLOY={{ 'INSTALLED' if core60_action == 'deploy' else 'NOT_PERFORMED' }}"
