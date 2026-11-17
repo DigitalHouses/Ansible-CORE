@@ -272,7 +272,7 @@
       - --exit-node=
       - --advertise-exit-node=false
       - --advertise-routes=
-      - --auto-update=false
+      - --auto-update=true
   register: core71_pbs_preferences
   failed_when: (core71_pbs_preferences.stdout | from_json).exitcode | int != 0
   changed_when: core71_action == 'configure'

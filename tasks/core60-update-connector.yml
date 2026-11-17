@@ -1,0 +1,57 @@
+---
+# CORE-only: update cloudflared lifecycle in existing CT1245, never DB/Stats.
+- name: Read existing CORE Stats CT1245 configuration
+  ansible.builtin.command:
+    argv: [pct, config, '1245']
+  register: core60_cf_updater_config
+  changed_when: false
+
+- name: Verify the dedicated CORE connector guest before modifications
+  ansible.builtin.assert:
+    that:
+      - "'hostname: dh-stats-CORE' in core60_cf_updater_config.stdout_lines"
+      - "core60_cf_updater_config.stdout is search('ip=192[.]168[.]11[.]245/24')"
+    fail_msg: CORE60_WRONG_CONNECTOR_CT
+
+- name: Require CORE connector CT1245 is running
+  ansible.builtin.command:
+    argv: [pct, status, '1245']
+  register: core60_cf_updater_ct_state
+  changed_when: false
+  failed_when: "core60_cf_updater_ct_state.stdout | trim != 'status: running'"
+
+- name: Stage only the connector unit files and automatic updater
+  ansible.builtin.copy:
+    src: "../files/core60/{{ item.src }}"
+    dest: "/run/{{ item.dest }}"
+    mode: '0600'
+  loop:
+    - {src: cloudflared-dh-core.service, dest: cloudflared-dh-core.service}
+    - {src: install-cloudflared.sh, dest: core60-install-cloudflared.sh}
+    - {src: update-cloudflared.sh, dest: core60-update-cloudflared.sh}
+    - {src: cloudflared-dh-core-update.service, dest: cloudflared-dh-core-update.service}
+    - {src: cloudflared-dh-core-update.timer, dest: cloudflared-dh-core-update.timer}
+
+- name: Transfer only connector unit files and updater into CT1245
+  ansible.builtin.command:
+    argv: [pct, push, '1245', "/run/{{ item.src }}", "/root/{{ item.dest }}"]
+  loop:
+    - {src: cloudflared-dh-core.service, dest: cloudflared-dh-core.service}
+    - {src: core60-install-cloudflared.sh, dest: core60-install-cloudflared.sh}
+    - {src: core60-update-cloudflared.sh, dest: core60-update-cloudflared.sh}
+    - {src: cloudflared-dh-core-update.service, dest: cloudflared-dh-core-update.service}
+    - {src: cloudflared-dh-core-update.timer, dest: cloudflared-dh-core-update.timer}
+  changed_when: true
+
+- name: Enable official Cloudflare APT repo and dedicated daily update timer
+  ansible.builtin.command:
+    argv: [pct, exec, '1245', --, bash, /root/core60-install-cloudflared.sh]
+  register: core60_cf_updater_install
+  changed_when: true
+
+- name: Confirm Cloudflare connector and updater timer are active
+  ansible.builtin.command:
+    argv: [pct, exec, '1245', --, systemctl, is-active, cloudflared-dh-core.service, cloudflared-dh-core-update.timer]
+  register: core60_cf_updater_health
+  changed_when: false
+  failed_when: core60_cf_updater_health.stdout_lines != ['active', 'active']

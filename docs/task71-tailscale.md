@@ -52,7 +52,7 @@ CORE PVE и CORE PBS имеют обычный default route через лока
 
 ```bash
 tailscale set --accept-dns=false --accept-routes=false --exit-node= \
-  --advertise-routes= --advertise-exit-node=false --auto-update=false
+  --advertise-routes= --advertise-exit-node=false --auto-update=true
 ```
 
 Tailscale IP из 100.64.0.0/10 сохраняется; маршрут до tailnet
@@ -228,3 +228,15 @@ Read-only инспекция показала, что VM2243 — совмещё�
   используется UTC; контейнер CT1241 работает в UTC.
 - Cloudflare/другие системные пакеты расписание не обновляет,
   никаких `apt upgrade` для PVE/PBS и reboot.
+
+## Auto-update as CORE default (17.11.2026)
+
+- For CORE PVE and PBS, action `configure` or `join` enables the built-in
+  stable Tailscale updater with `--auto-update=true`.
+- The CORE Media PBS fresh-import path enables the same setting after identity
+  restore. DNS/default route preferences stay unchanged.
+- The earlier weekly Semaphore `71/update/both` schedule is historical and
+  remains configured until separately changed; built-in updates can occur
+  outside that schedule. No schedule change is part of this code patch.
+- To apply on current servers, use CORE task 71 `configure` targeting `both`.
+  Package replacement is not performed by `configure`.

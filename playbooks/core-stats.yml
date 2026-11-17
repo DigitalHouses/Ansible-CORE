@@ -14,7 +14,7 @@
     - name: Refuse any deployment or a foreign PVE site
       ansible.builtin.assert:
         that:
-          - core60_action in ['audit', 'cf-audit', 'prepare-tunnel', 'deploy', 'diagnose', 'cutover', 'countries', 'origin-network', 'origin-switch', 'update']
+          - core60_action in ['audit', 'cf-audit', 'prepare-tunnel', 'deploy', 'diagnose', 'cutover', 'countries', 'origin-network', 'origin-switch', 'update', 'update-connector']
           - pve.ipv4 == '192.168.11.240'
           - (core_stats_ctid | int) == 1245
           - core_resource_standard.stats_ct_name == 'dh-stats-CORE'
@@ -165,6 +165,10 @@
     - name: Update installed DH Stats code and local dashboard only
       ansible.builtin.include_tasks: ../tasks/core60-update-stats.yml
       when: core60_action == 'update'
+
+    - name: Enable dedicated Cloudflare connector auto-update on existing CT1245
+      ansible.builtin.include_tasks: ../tasks/core60-update-connector.yml
+      when: core60_action == 'update-connector'
 
     - name: Query foreign telemetry products grouped by country and version
       ansible.builtin.include_tasks: ../tasks/core60-country-report.yml

@@ -116,3 +116,18 @@ Four other installations were observed in KZ (two Internet App and two Zigbee Mo
 - CORE Semaphore Job **#174: SUCCESS** `CORE60_STATS_VERSION=0.4.2`, `CORE60_STATS_COUNTRY_EXPANSION=ENABLED`, country totals E2E PASS. Regression contract tests passed.
 - Post-update real read-only API check: six countries, 11 installations/heartbeats. `KZ=6`: Internet App=3, Zigbee Monitor App=2, Recorder App=1. `AU=IL=NL=PL=RU=1`: each Internet App=1. All country group sums match the dashboard summary.
 - Public `https://telemetry.digitalhouses.vip/healthz` remained HTTP **200**. Public `/api/countries` remained **404** (countries and dashboard remain LAN-only). PostgreSQL data and Cloudflare origin `192.168.11.245:8082` unchanged.
+
+## Cloudflare Tunnel connector auto-update (17.11.2026)
+
+- Existing `dh-core` connector lives in CORE CT1245 (`192.168.11.245`).
+- `cloudflared` was installed from a Debian package; its built-in
+  `--autoupdate-freq` flag does not work for package-managed installations.
+- Dedicated CORE №60 action `update-connector` configures the official
+  Cloudflare APT source and a daily systemd timer inside CT1245.
+- Timer upgrades only `cloudflared` and restarts only
+  `cloudflared-dh-core.service` if its package version changed. This can
+  briefly interrupt Cloudflare traffic. It does not reinstall Stats,
+  touch PostgreSQL, modify Tunnel routes, or recreate the CT.
+- New CORE №60 `deploy` also configures the same timer.
+- Deploy through CORE task 60 `update-connector`; no production run of
+  that new action is claimed in this repository note.

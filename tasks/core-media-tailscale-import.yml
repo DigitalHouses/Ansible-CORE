@@ -48,7 +48,7 @@
 
 - name: Keep all LAN default routes and DNS outside the tailnet
   ansible.builtin.command:
-    argv: [tailscale, set, --accept-dns=false, --accept-routes=false]
+    argv: [tailscale, set, --accept-dns=false, --accept-routes=false, --auto-update=true]
   changed_when: false
 
 - name: Verify recovered CORE tailnet is connected without re-authentication

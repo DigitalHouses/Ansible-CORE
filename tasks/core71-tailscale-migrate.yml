@@ -79,7 +79,7 @@
         (core71_migrate_join.stdout | default('{}', true) | from_json).get('exitcode', 1) | int != 0
       no_log: true
 
-    - name: Disable built-in Tailscale updates and keep DNS/routing unchanged
+    - name: Enable built-in Tailscale updates and keep DNS/routing unchanged
       ansible.builtin.command:
         argv:
           - qm
@@ -94,7 +94,7 @@
           - --exit-node=
           - --advertise-routes=
           - --advertise-exit-node=false
-          - --auto-update=false
+          - --auto-update=true
       register: core71_migrate_preferences
       failed_when: >-
         core71_migrate_preferences.rc != 0 or

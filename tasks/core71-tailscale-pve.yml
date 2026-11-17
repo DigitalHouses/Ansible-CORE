@@ -140,7 +140,7 @@
       - --exit-node=
       - --advertise-exit-node=false
       - --advertise-routes=
-      - --auto-update=false
+      - --auto-update=true
   when: core71_action in ['configure', 'join'] and core71_pve_package_after.rc == 0
   changed_when: core71_action == 'configure'
 
