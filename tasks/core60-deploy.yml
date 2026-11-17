@@ -1,0 +1,247 @@
+---
+# CORE-only LXC install. Nothing is destroyed; no source HOME DB or DNS touched.
+- name: Require unused CORE CT identity and no active .245 ARP owner
+  ansible.builtin.assert:
+    that:
+      - (core60_existing_id | length) <= 1
+      - (core60_existing_name | length) <= 1
+      - (core60_existing_id | length) == 0 or core60_existing_id[0].name == core_resource_standard.stats_ct_name
+      - (core60_existing_name | length) == 0 or core60_existing_name[0].vmid | int == core_stats_ctid | int
+      - (core60_existing_id | length) > 0 or (core60_arping_binary.rc == 0 and (core60_arping_probe.rc | default(1)) == 0)
+      - core60_connector_token | length > 40
+    fail_msg: CORE60_TARGET_ID_IP_OR_TUNNEL_NOT_SAFE_TO_CREATE
+
+- name: Read existing CT1245 configuration for safe post-failure resume
+  ansible.builtin.command:
+    argv: [pct, config, "{{ core_stats_ctid | string }}"]
+  register: core60_existing_config
+  changed_when: false
+  when: core60_existing_id | length == 1
+
+- name: Refuse resuming any foreign CT or changed network/disk identity
+  ansible.builtin.assert:
+    that:
+      - "'hostname: dh-stats-CORE' in core60_existing_config.stdout_lines"
+      - "'ostype: debian' in core60_existing_config.stdout_lines"
+      - core60_existing_config.stdout is search('(?m)^net0: name=eth0,bridge=vmbr0,.*ip=192[.]168[.]11[.]245/24')
+      - core60_existing_config.stdout is search('(?m)^rootfs: local-lvm:vm-1245-disk-0,')
+      - "'unprivileged: 1' in core60_existing_config.stdout_lines"
+    fail_msg: CORE60_EXISTING_CT1245_NOT_OWNED_BY_DH_STATS
+  when: core60_existing_id | length == 1
+
+- name: Update official PVE Debian template index
+  ansible.builtin.command:
+    argv: [pveam, update]
+  changed_when: false
+  when: core60_existing_id | length == 0
+
+- name: Choose the latest Debian 13 LXC template
+  ansible.builtin.shell: |
+    set -o pipefail
+    pveam available --section system |
+      awk '$2 ~ /^debian-13-standard_[[:alnum:].+-]+_amd64\.tar\.zst$/ { print $2 }' |
+      sort -V | tail -n 1
+  args:
+    executable: /bin/bash
+  register: core60_debian_template
+  changed_when: false
+  when: core60_existing_id | length == 0
+
+- name: Require a genuine Debian 13 template before allocating a CT
+  ansible.builtin.assert:
+    that:
+      - core60_debian_template.stdout is match('^debian-13-standard_[A-Za-z0-9.+-]+_amd64[.]tar[.]zst$')
+    fail_msg: CORE60_DEBIAN13_TEMPLATE_NOT_FOUND
+  when: core60_existing_id | length == 0
+
+- name: Check local template cache before download
+  ansible.builtin.stat:
+    path: "/var/lib/vz/template/cache/{{ core60_debian_template.stdout }}"
+  register: core60_local_template
+  when: core60_existing_id | length == 0
+
+- name: Download the upstream Debian 13 LXC image only once
+  ansible.builtin.command:
+    argv: [pveam, download, local, "{{ core60_debian_template.stdout }}"]
+  when:
+    - core60_existing_id | length == 0
+    - not core60_local_template.stat.exists
+  changed_when: true
+
+- name: Create the dedicated DigitalHouses CORE Stats LXC
+  ansible.builtin.command:
+    argv:
+      - pct
+      - create
+      - "{{ core_stats_ctid | string }}"
+      - "local:vztmpl/{{ core60_debian_template.stdout }}"
+      - --hostname
+      - "{{ core_resource_standard.stats_ct_name }}"
+      - --ostype
+      - debian
+      - --cores
+      - '1'
+      - --memory
+      - '1024'
+      - --swap
+      - '512'
+      - --rootfs
+      - 'local-lvm:16'
+      - --unprivileged
+      - '1'
+      - --net0
+      - name=eth0,bridge=vmbr0,ip=192.168.11.245/24,gw=192.168.11.1
+      - --onboot
+      - '1'
+      - --startup
+      - order=3
+      - --protection
+      - '1'
+  changed_when: true
+  when: core60_existing_id | length == 0
+
+- name: Read the current dedicated CT1245 status
+  ansible.builtin.command:
+    argv: [pct, status, "{{ core_stats_ctid | string }}"]
+  register: core60_ct_power_state
+  changed_when: false
+
+- name: Start only the newly created dedicated CT1245
+  ansible.builtin.command:
+    argv: [pct, start, "{{ core_stats_ctid | string }}"]
+  changed_when: true
+  when: "core60_ct_power_state.stdout | trim != 'status: running'"
+
+- name: Check guest identity through PVE before installing applications
+  ansible.builtin.command:
+    argv: [pct, exec, "{{ core_stats_ctid | string }}", --, hostname, -s]
+  register: core60_guest_hostname
+  changed_when: false
+  retries: 12
+  delay: 3
+  until: core60_guest_hostname.rc == 0
+
+- name: Require guest identity agrees with Proxmox canonical label
+  ansible.builtin.assert:
+    that:
+      - core60_guest_hostname.stdout | trim == core_resource_standard.stats_ct_name
+    fail_msg: CORE60_GUEST_HOSTNAME_MISMATCH
+
+- name: Stage audited DH Stats installation script on the trusted PVE
+  ansible.builtin.copy:
+    src: ../files/core60/install-stats.sh
+    dest: /run/core60-install-stats.sh
+    owner: root
+    group: root
+    mode: '0700'
+
+- name: Copy installer into isolated CT1245
+  ansible.builtin.command:
+    argv: [pct, push, "{{ core_stats_ctid | string }}", /run/core60-install-stats.sh, /root/core60-install-stats.sh]
+  changed_when: true
+
+- name: Install native DigitalHouses Stats with fresh local PostgreSQL and LAN dashboard
+  ansible.builtin.command:
+    argv: [pct, exec, "{{ core_stats_ctid | string }}", --, bash, /root/core60-install-stats.sh]
+  register: core60_native_install
+  changed_when: true
+  no_log: true
+
+- name: Verify fresh guest ingestion and local dashboard via CORE PVE
+  ansible.builtin.uri:
+    url: http://192.168.11.245/healthz
+    method: GET
+    timeout: 8
+    return_content: true
+    use_proxy: false
+  register: core60_dashboard_health
+  changed_when: false
+  retries: 5
+  delay: 3
+  until: (core60_dashboard_health.status | default(0)) == 200
+
+- name: Require private dashboard API is healthy
+  ansible.builtin.assert:
+    that:
+      - core60_dashboard_health.json.status | default('') == 'ok'
+    fail_msg: CORE60_LOCAL_DASHBOARD_NOT_HEALTHY
+
+- name: Create the root-only Cloudflare token directory inside CT1245
+  ansible.builtin.command:
+    argv: [pct, exec, "{{ core_stats_ctid | string }}", --, install, -d, -m, '0700', /etc/cloudflared]
+  changed_when: true
+
+- name: Copy only the new dedicated CF connector credential into CT, never Git
+  no_log: true
+  block:
+    - name: Save CF connector token briefly in CORE PVE volatile /run
+      ansible.builtin.copy:
+        content: "{{ core60_connector_token }}\n"
+        dest: /run/core60-tunnel-token-1245
+        owner: root
+        group: root
+        mode: '0600'
+
+    - name: Transfer private token into isolated CT1245
+      ansible.builtin.command:
+        argv: [pct, push, "{{ core_stats_ctid | string }}", /run/core60-tunnel-token-1245, /etc/cloudflared/token]
+      changed_when: true
+  always:
+    - name: Erase the ephemeral PVE token file after transfer
+      ansible.builtin.file:
+        path: /run/core60-tunnel-token-1245
+        state: absent
+
+- name: Require root-only token permissions inside CT1245
+  ansible.builtin.command:
+    argv: [pct, exec, "{{ core_stats_ctid | string }}", --, chmod, '0600', /etc/cloudflared/token]
+  changed_when: true
+  no_log: true
+
+- name: Stage service files and connector installation recipe on PVE
+  ansible.builtin.copy:
+    src: "../files/core60/{{ item.src }}"
+    dest: "/run/{{ item.dest }}"
+    mode: '0600'
+  loop:
+    - {src: cloudflared-dh-core.service, dest: cloudflared-dh-core.service}
+    - {src: install-cloudflared.sh, dest: core60-install-cloudflared.sh}
+
+- name: Transfer dedicated connector service unit and installer into CT1245
+  ansible.builtin.command:
+    argv: [pct, push, "{{ core_stats_ctid | string }}", "/run/{{ item.src }}", "/root/{{ item.dest }}"]
+  loop:
+    - {src: cloudflared-dh-core.service, dest: cloudflared-dh-core.service}
+    - {src: core60-install-cloudflared.sh, dest: core60-install-cloudflared.sh}
+  changed_when: true
+
+- name: Install and start only the new cloudflared dh-core connector
+  ansible.builtin.command:
+    argv: [pct, exec, "{{ core_stats_ctid | string }}", --, bash, /root/core60-install-cloudflared.sh]
+  register: core60_cloudflared_install
+  changed_when: true
+
+- name: Verify all CORE Stats guest services are active
+  ansible.builtin.command:
+    argv: [pct, exec, "{{ core_stats_ctid | string }}", --, systemctl, is-active, digitalhouses-stats, digitalhouses-stats-dashboard-api, nginx, postgresql, cloudflared-dh-core]
+  register: core60_service_states
+  changed_when: false
+
+- name: Confirm all five services on newly deployed guest are running
+  ansible.builtin.assert:
+    that:
+      - core60_service_states.stdout_lines | length == 5
+      - core60_service_states.stdout_lines | unique | list == ['active']
+    fail_msg: CORE60_STATS_SERVICES_NOT_READY
+
+- name: Report deployment readiness while preserving original public DNS
+  ansible.builtin.debug:
+    msg:
+      - CORE60_DEPLOY=PASS
+      - CORE60_PVE_GUEST=CT1245/dh-stats-CORE
+      - CORE60_GUEST_IPV4=192.168.11.245
+      - CORE60_PG=NEW_LOCAL_DATABASE
+      - CORE60_DASHBOARD=http://192.168.11.245/
+      - CORE60_CLOUDFLARED=LOCAL_SERVICE_ACTIVE
+      - CORE60_PUBLIC_DNS=NOT_CHANGED
+      - CORE60_OLD_HOME=NOT_TOUCHED

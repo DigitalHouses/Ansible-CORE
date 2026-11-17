@@ -83,6 +83,7 @@ tasks:
           - {name: "Проверить CORE CT1245 и публичную телеметрию (без изменений)", value: audit}
           - {name: "Проверить Cloudflare zone/DNS/Tunnel для dh-core (только чтение)", value: cf-audit}
           - {name: "Создать отдельный CF Tunnel dh-core без переключения DNS", value: prepare-tunnel}
+          - {name: "Установить чистый CORE CT1245/DH Stats+PostgreSQL+connector, без переключения DNS", value: deploy}
   - name: 71-Tailscale
     playbook: playbooks/core-tailscale.yml
     description: "CORE PVE + PBS: stable Tailscale install/configure/join/update; safe PBS WARP migration completed"

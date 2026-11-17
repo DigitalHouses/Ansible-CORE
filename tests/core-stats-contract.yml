@@ -9,6 +9,8 @@
     root: "{{ playbook_dir | dirname }}"
     audit: "{{ lookup('ansible.builtin.file', root ~ '/playbooks/core-stats.yml') | from_yaml }}"
     catalog: "{{ lookup('ansible.builtin.file', root ~ '/catalog/tasks.yml') | from_yaml }}"
+    deploy_tasks: "{{ lookup('ansible.builtin.file', root ~ '/tasks/core60-deploy.yml') | from_yaml }}"
+    install_script: "{{ lookup('ansible.builtin.file', root ~ '/files/core60/install-stats.sh') }}"
     entry: "{{ (catalog.tasks | selectattr('name', 'equalto', '60-CORE DH Stats') | list | first) }}"
   tasks:
     - name: Verify deterministic CORE target and read-only task catalog
@@ -19,14 +21,30 @@
           - core_resource_standard.stats_octet == 245
           - entry.playbook == 'playbooks/core-stats.yml'
           - entry.survey_vars[0].default_value == 'audit'
-          - entry.survey_vars[0]['values'] | map(attribute='value') | list == ['audit','cf-audit','prepare-tunnel']
+          - entry.survey_vars[0]['values'] | map(attribute='value') | list == ['audit','cf-audit','prepare-tunnel','deploy']
           - "'core-resource-standard-assert.yml' in (audit | to_json)"
           - "'pvesh' in (audit | to_json)"
           - "'core60-cloudflare-audit.yml' in (audit | to_json)"
           - "'core60-cloudflare-prepare.yml' in (audit | to_json)"
+          - "'core60-deploy.yml' in (audit | to_json)"
           - "'https://telemetry.digitalhouses.vip/healthz' in (audit | to_json)"
           - "'pct, create' not in (audit | to_json)"
           - "'pct, destroy' not in (audit | to_json)"
           - "'qm, destroy' not in (audit | to_json)"
           - "'zfs' not in (audit | to_json)"
           - "'POST' not in (audit | to_json)"
+
+    - name: Require a fresh local DB, no old HOME imports or destructive lifecycle
+      ansible.builtin.assert:
+        that:
+          - "'pct' in (deploy_tasks | to_json)"
+          - "'create' in (deploy_tasks | to_json)"
+          - "'pct, destroy' not in (deploy_tasks | to_json)"
+          - "'pct, stop' not in (deploy_tasks | to_json)"
+          - "'192.168.11.245' in (deploy_tasks | to_json)"
+          - "'cloudflared-dh-core' in (deploy_tasks | to_json)"
+          - "'pg_dump' not in install_script"
+          - "'pg_restore' not in install_script"
+          - "'alembic' in install_script"
+          - "'debian-13-standard_' in (deploy_tasks | to_json)"
+          - "'https://github.com/DigitalHouses/home-assistant-apps.git' in install_script"

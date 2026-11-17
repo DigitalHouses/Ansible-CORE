@@ -14,7 +14,7 @@
     - name: Refuse any deployment or a foreign PVE site
       ansible.builtin.assert:
         that:
-          - core60_action in ['audit', 'cf-audit', 'prepare-tunnel']
+          - core60_action in ['audit', 'cf-audit', 'prepare-tunnel', 'deploy']
           - pve.ipv4 == '192.168.11.240'
           - (core_stats_ctid | int) == 1245
           - core_resource_standard.stats_ct_name == 'dh-stats-CORE'
@@ -36,11 +36,34 @@
 
     - name: Audit Cloudflare zone, tunnel and existing DNS route without changes
       ansible.builtin.include_tasks: ../tasks/core60-cloudflare-audit.yml
-      when: core60_action in ['cf-audit', 'prepare-tunnel']
+      when: core60_action in ['cf-audit', 'prepare-tunnel', 'deploy']
 
     - name: Create the dedicated dh-core Tunnel without touching public DNS
       ansible.builtin.include_tasks: ../tasks/core60-cloudflare-prepare.yml
       when: core60_action == 'prepare-tunnel'
+
+    - name: Retrieve only dedicated dh-core connector token for guest installation
+      ansible.builtin.uri:
+        url: "https://api.cloudflare.com/client/v4/accounts/{{ core60_cf_account_id }}/cfd_tunnel/{{ core60_cf_tunnels.json.result[0].id }}/token"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ DH_CLOUDFLARE_API_TOKEN }}"
+        return_content: true
+        use_proxy: false
+      register: core60_connector_secret
+      no_log: true
+      when: core60_action == 'deploy'
+
+    - name: Refuse deploying through a missing or ambiguous dh-core Tunnel
+      ansible.builtin.assert:
+        that:
+          - core60_cf_tunnels.json.result | length == 1
+          - core60_cf_tunnels.json.result[0].name == 'dh-core'
+          - core60_connector_secret.json.success | default(false) | bool
+          - core60_connector_secret.json.result | length > 40
+        fail_msg: CORE60_TUNNEL_TOKEN_MISSING
+      when: core60_action == 'deploy'
+      no_log: true
 
     - name: Register only the trusted CORE PVE read-only audit target
       ansible.builtin.add_host:
@@ -55,6 +78,8 @@
           -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes
           -o UserKnownHostsFile=/var/lib/semaphore/.ssh/known_hosts
         core60_expected_node: "{{ pve.node }}"
+        core60_action: "{{ core60_action }}"
+        core60_connector_token: "{{ core60_connector_secret.json.result | default('') }}"
         core60_public_status: "{{ core60_public_health.status | default('unreachable') }}"
         core60_public_ok: >-
           {{ (core60_public_health.status | default(0) | int) == 200
@@ -125,10 +150,14 @@
       failed_when: false
       when: core60_arping_binary.rc == 0
 
+    - name: Install isolated CORE DH Stats LXC and its own new database
+      ansible.builtin.include_tasks: ../tasks/core60-deploy.yml
+      when: core60_action == 'deploy'
+
     - name: Report audit-only DH Stats migration readiness
       ansible.builtin.debug:
         msg:
-          - CORE60_MODE=AUDIT_ONLY
+          - "CORE60_MODE={{ core60_action | upper }}"
           - "CORE60_PVE={{ core60_expected_node }}/192.168.11.240"
           - "CORE60_TARGET_CTID={{ core_stats_ctid }}"
           - "CORE60_TARGET_LABEL={{ core_resource_standard.stats_ct_name }}"
@@ -140,4 +169,4 @@
           - CORE60_HOME_CT7000=NOT_TOUCHED
           - "CORE60_IP_LAN_OCCUPANCY={{ 'CLEAR_BY_ARPING_DAD' if core60_arping_binary.rc == 0 and core60_arping_probe.rc | default(1) == 0 else ('CONFLICT_BY_ARPING_DAD' if core60_arping_binary.rc == 0 else 'ARPING_NOT_INSTALLED') }}"
           - CORE60_DB_BACKUP_AND_TUNNEL_CUTOVER=NOT_STARTED
-          - CORE60_DEPLOY=NOT_PERFORMED
+          - "CORE60_DEPLOY={{ 'INSTALLED' if core60_action == 'deploy' else 'NOT_PERFORMED' }}"

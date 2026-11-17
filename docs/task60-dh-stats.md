@@ -1,6 +1,6 @@
 # №60 — CORE DH Stats: диагностика и план переноса
 
-**Текущий этап: только `audit`.** Никаких LXC, DNS, Cloudflare Tunnel, HOME или PostgreSQL данных не изменяем. Режим `apply` не реализован и не предлагается до сверки текущей базы и Tunnel.
+**Новая цель (17.11.2026):** чистая CORE установка без истории HOME. Отдельный новый Tunnel `dh-core`; действующий HOME Tunnel и DNS не меняются до успешной локальной установки и готовности connector.
 
 ## Подтверждённый исходный контракт
 
@@ -9,12 +9,12 @@
 - Public HTTPS: `https://telemetry.digitalhouses.vip`; `GET /healthz` возвращает `200 {"status":"ok"}` при проверке из DEV 16.11.2026.
 - Приём: FastAPI/systemd `127.0.0.1:8080`, `POST /v1/heartbeat`, `DELETE /v1/installation`, доверенный Cloudflare `CF-IPCountry`.
 - Dashboard: **только LAN**, nginx `:80` + отдельная FastAPI `127.0.0.1:8081`. В исходном скрипте и nginx hardcoded `192.168.11.254`, требуется параметризация.
-- Хранилище: PostgreSQL в том же LXC (`digitalhouses_stats`, `installations` и append-only `heartbeats`), миграция должна сохранять installation IDs, token hashes, timestamps и историю.
+- Хранилище: PostgreSQL в том же LXC (`digitalhouses_stats`, `installations` и append-only `heartbeats`), история с HOME **не переносится** по решению владельца. Новая схема создаётся `alembic upgrade head`.
 - Cloudflare origin и конкретный Tunnel сейчас **не подтверждены из Cloudflare API**. Публичное здоровье доказывает доступность сервиса, но не путь до CT7000.
 
 ## Кандидат CORE
 
-- PVE `192.168.11.240`, CT **1245**; IP **192.168.11.245/24**; PVE имя **`dh-stats-CORE`** (строгий суффикс `-CORE`). Это кандидат, занятость проверяет №60 audit. IP-конфликт вне Proxmox требует отдельной проверки перед созданием.
+- PVE `192.168.11.240`, CT **1245**; IP **192.168.11.245/24**; PVE имя **`dh-stats-CORE`** (строгий суффикс `-CORE`). Это кандидат, занятость проверяет №60 audit. IP проверяется ARP duplicate-address-detection на CORE PVE перед созданием; 16.11.2026 #148 показал `CLEAR_BY_ARPING_DAD`.
 - Debian LXC, один сервис с локальным PostgreSQL, без зависимости от HOME/VM2243 и без отдельной Stats-базы на CT1244. Начальные ресурсы по проекту: 1 vCPU, 1 ГиБ RAM, 16 ГиБ SSD — уточнить по фактическому размеру текущей БД перед `apply`.
 - **Тот же** публичный домен `telemetry.digitalhouses.vip`; никаких изменений в коде клиентов `dh_ha_apps`.
 - Cloudflared/Tunnel cutover должен сохранить защиту: приложение принимает `CF-IPCountry` только от доверенного Cloudflare ingress, прямой интернет-доступ до `:8080` не допускается. Локальный dashboard не должен публиковаться через публичный путь.
@@ -35,14 +35,12 @@ CORE Semaphore №60 Job **#145** — **Success, changed=0**, исключите
 **Не считать свободный VMID доказательством свободного LAN IP.** Перед apply
 требуется надёжная проверка IP на CORE и проверка актуального origin по CF API.
 
-## Минимальный последующий план (не выполнялся)
+## Порядок выполнения (не стирает старую базу)
 
-1. Прочитать реальный `pct config 7000`, конфигурацию сервисов и Cloudflare Tunnel; зафиксировать БД (размер, схемы, количество installations/heartbeats), backup и свободное место. HOME только read-only до разрешённого переключения.
-2. Доказать отсутствие коллизии `.245` в CORE LAN, развернуть **новый** CT1245 и приватно проверить ingestion/dashboard без публикации. Обновить IP в nginx/install-local-dashboard.
-3. В согласованное окно остановить запись в старую БД, сделать финальный `pg_dump`, восстановить на CORE; проверить счётчики, схему и версию, без сброса installation IDs.
-4. Перевести существующий публичный Tunnel/hostname на CORE **без одновременной записи в две базы**, проверить публичный health и приём одного штатного heartbeat. Сохранить возможность отката до первой записи CORE, не оставлять два активных ingest origin.
-5. Только после приёмки отключить старый ingest и запустить штатный backup CT1245.
+1. **№60 `audit`** — IP/CT identity, ARP check, public health.
+2. **№60 `cf-audit`** — прочитать CF Zone/DNS/Tunnel; **`prepare-tunnel`** — создать удалённо управляемый `dh-core`, **не менять** DNS. Job #150 создал tunnel `ef829b9e-c410-4b5b-a754-85ab01b9d31b`, старый DNS и HOME не тронуты.
+3. **№60 `deploy`** — создать CORE CT1245 на Debian 13, установить PostgreSQL с новой пустой БД и Alembic, Stats ingestion + LAN-only dashboard, запустить внутри CT `cloudflared-dh-core` с root-only токеном. До cutover публичный DNS не меняется. Не переиспользовать данные HOME.
+4. После локального и CF connector E2E — переключение **только** `telemetry.digitalhouses.vip` на новый tunnel. Публичный dashboard **не публикуется**, только ingestion API; прежнюю DNS-запись сохранять для возможного отката.
+5. Проверить реальный публичный heartbeat и удалить тестовую установку; копии CT1245 идут в действующий CORE PBS `pbs-core/dh-core`.
 
-## Текущая задача
-
-CORE Semaphore **№60** (`playbooks/core-stats.yml`), режим **`audit`**: только получение списка PVE guests и имени, проверка CORE адресации и текущего публичного `/healthz`. Печатает `CORE60_*`. Не изменяет ни один PVE/LXC, DNS, БД или Tunnel; не делает и не эмулирует deployment.
+Статус текущих действий и job ID фиксируется ниже. Режим `deploy` не удаляет никакой существующий CT, никогда не пересоздаёт несвой LXC и повторно проверяет ARP/IP до выделения ресурса.
