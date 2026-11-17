@@ -1,0 +1,39 @@
+---
+- name: Verify canonical CORE DH Stats is the running CT before network-origin work
+  ansible.builtin.assert:
+    that:
+      - core60_existing_id | length == 1
+      - core60_existing_id[0].name == core_resource_standard.stats_ct_name
+      - core60_existing_id[0].status == 'running'
+    fail_msg: CORE60_NETWORK_ORIGIN_FOREIGN_OR_STOPPED_CT
+
+- name: Copy CORE-only protected nginx origin configuration installer to PVE
+  ansible.builtin.copy:
+    src: ../files/core60/configure-network-origin.sh
+    dest: /run/core60-configure-network-origin.sh
+    mode: '0700'
+
+- name: Transfer configuration installer only to the existing CT1245
+  ansible.builtin.command:
+    argv: [pct, push, '1245', /run/core60-configure-network-origin.sh, /root/core60-configure-network-origin.sh]
+  changed_when: true
+
+- name: Configure and test private network-origin reverse proxy in CT1245
+  ansible.builtin.command:
+    argv: [pct, exec, '1245', --, bash, /root/core60-configure-network-origin.sh]
+  register: core60_origin_result
+  changed_when: true
+
+- name: Require internal ingress proxy reports successful health
+  ansible.builtin.assert:
+    that:
+      - "'CORE60_NETWORK_ORIGIN=PASS' in core60_origin_result.stdout_lines"
+    fail_msg: CORE60_NETWORK_ORIGIN_HEALTH_FAILED
+
+- name: Report protected LAN ingress for Cloudflare
+  ansible.builtin.debug:
+    msg:
+      - CORE60_NETWORK_ORIGIN=PASS
+      - CORE60_ORIGIN_URL=http://192.168.11.245:8082
+      - CORE60_PUBLIC_DNS=UNCHANGED
+      - CORE60_LOCAL_DASHBOARD=UNCHANGED

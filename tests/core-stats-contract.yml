@@ -22,7 +22,7 @@
           - core_resource_standard.stats_octet == 245
           - entry.playbook == 'playbooks/core-stats.yml'
           - entry.survey_vars[0].default_value == 'audit'
-          - entry.survey_vars[0]['values'] | map(attribute='value') | list == ['audit','cf-audit','prepare-tunnel','deploy','diagnose','cutover','countries']
+          - entry.survey_vars[0]['values'] | map(attribute='value') | list == ['audit','cf-audit','prepare-tunnel','deploy','diagnose','cutover','countries','origin-network']
           - "'core-resource-standard-assert.yml' in (audit | to_json)"
           - "'pvesh' in (audit | to_json)"
           - "'core60-cloudflare-audit.yml' in (audit | to_json)"
@@ -30,6 +30,7 @@
           - "'core60-deploy.yml' in (audit | to_json)"
           - "'core60-cloudflare-cutover.yml' in (audit | to_json)"
           - "'core60-country-report.yml' in (audit | to_json)"
+          - "'core60-network-origin.yml' in (audit | to_json)"
           - "'https://telemetry.digitalhouses.vip/healthz' in (audit | to_json)"
           - "'pct, create' not in (audit | to_json)"
           - "'pct, destroy' not in (audit | to_json)"
@@ -49,6 +50,7 @@
           - "'pct, stop' not in (deploy_tasks | to_json)"
           - "'192.168.11.245' in (deploy_tasks | to_json)"
           - "'cloudflared-dh-core' in (deploy_tasks | to_json)"
+          - "'configure-network-origin.sh' in (deploy_tasks | to_json)"
           - "'pg_dump' not in install_script"
           - "'pg_restore' not in install_script"
           - "'alembic' in install_script"

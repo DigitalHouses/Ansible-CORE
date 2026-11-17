@@ -168,6 +168,29 @@
       - core60_dashboard_health.json.status | default('') == 'ok'
     fail_msg: CORE60_LOCAL_DASHBOARD_NOT_HEALTHY
 
+- name: Stage protected LAN origin config for new CORE Stats installations
+  ansible.builtin.copy:
+    src: ../files/core60/configure-network-origin.sh
+    dest: /run/core60-configure-network-origin.sh
+    mode: '0700'
+
+- name: Transfer LAN-origin config installer into CT1245
+  ansible.builtin.command:
+    argv: [pct, push, '1245', /run/core60-configure-network-origin.sh, /root/core60-configure-network-origin.sh]
+  changed_when: true
+
+- name: Configure network-accessible origin for CF without opening the API to other LAN clients
+  ansible.builtin.command:
+    argv: [pct, exec, '1245', --, bash, /root/core60-configure-network-origin.sh]
+  register: core60_network_origin_install
+  changed_when: true
+
+- name: Require network origin is healthy before connecting to Cloudflare
+  ansible.builtin.assert:
+    that:
+      - "'CORE60_NETWORK_ORIGIN=PASS' in core60_network_origin_install.stdout_lines"
+    fail_msg: CORE60_PROTECTED_NETWORK_ORIGIN_NOT_READY
+
 - name: Create the root-only Cloudflare token directory inside CT1245
   ansible.builtin.command:
     argv: [pct, exec, "{{ core_stats_ctid | string }}", --, install, -d, -m, '0700', /etc/cloudflared]
