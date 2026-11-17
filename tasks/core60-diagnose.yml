@@ -1,0 +1,43 @@
+---
+- name: Require existing expected stats LXC before diagnosis
+  ansible.builtin.assert:
+    that:
+      - core60_existing_id | length == 1
+      - core60_existing_id[0].name == core_resource_standard.stats_ct_name
+    fail_msg: CORE60_DIAG_NO_EXPECTED_GUEST
+
+- name: Collect non-secret guest installation state
+  ansible.builtin.command:
+    argv:
+      - pct
+      - exec
+      - "{{ core_stats_ctid | string }}"
+      - --
+      - bash
+      - -lc
+      - >-
+        echo HOST=$(hostname -s);
+        echo IP=$(hostname -I);
+        echo PKGS;
+        dpkg-query -W -f='${binary:Package}=${Status}
+' postgresql nginx git python3-venv curl 2>/dev/null || true;
+        echo PATHS;
+        for d in /opt/digitalhouses/home-assistant-apps /opt/digitalhouses/digitalhouses-stats /etc/digitalhouses-stats /etc/nginx/sites-available/digitalhouses-stats; do
+          test -e "$d" && echo PRESENT:$d || echo MISSING:$d;
+        done;
+        echo ENV_EXISTENCE;
+        test -s /etc/digitalhouses-stats/digitalhouses-stats.env && echo ENV_PRESENT || echo ENV_MISSING;
+        echo SERVICES;
+        for svc in postgresql nginx digitalhouses-stats digitalhouses-stats-dashboard-api; do
+          echo "$svc:$(systemctl is-active "$svc" 2>/dev/null || true)";
+        done;
+        echo PG_READY;
+        pg_isready -h 127.0.0.1 2>/dev/null || true;
+        echo LAST_JOURNAL;
+        journalctl -u digitalhouses-stats.service -n 7 --no-pager 2>/dev/null | grep -v DATABASE_URL || true
+  register: core60_diag
+  changed_when: false
+
+- name: Print redacted component readiness without secrets
+  ansible.builtin.debug:
+    var: core60_diag.stdout_lines
