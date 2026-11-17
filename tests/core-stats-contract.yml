@@ -46,5 +46,6 @@
           - "'pg_dump' not in install_script"
           - "'pg_restore' not in install_script"
           - "'alembic' in install_script"
+          - "'chmod -R a+rX' in install_script"
           - "'debian-13-standard_' in (deploy_tasks | to_json)"
           - "'https://github.com/DigitalHouses/home-assistant-apps.git' in install_script"

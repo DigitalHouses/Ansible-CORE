@@ -49,6 +49,9 @@ if [[ ! -x "$APP/.venv/bin/python" ]]; then
   python3 -m venv "$APP/.venv"
 fi
 "$APP/.venv/bin/pip" install --disable-pip-version-check --no-cache-dir "$APP"
+# Sources are public; the dedicated unprivileged systemd account must traverse
+# the app and venv directories. Secrets remain outside the app, under /etc.
+chmod -R a+rX "$APP"
 (
   cd "$APP"
   set -a
