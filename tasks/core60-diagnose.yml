@@ -19,8 +19,7 @@
         echo HOST=$(hostname -s);
         echo IP=$(hostname -I);
         echo PKGS;
-        dpkg-query -W -f='${binary:Package}=${Status}
-' postgresql nginx git python3-venv curl 2>/dev/null || true;
+        dpkg-query -W postgresql nginx git python3-venv curl 2>/dev/null || true;
         echo PATHS;
         for d in /opt/digitalhouses/home-assistant-apps /opt/digitalhouses/digitalhouses-stats /etc/digitalhouses-stats /etc/nginx/sites-available/digitalhouses-stats; do
           test -e "$d" && echo PRESENT:$d || echo MISSING:$d;
