@@ -22,7 +22,7 @@
           - core_resource_standard.stats_octet == 245
           - entry.playbook == 'playbooks/core-stats.yml'
           - entry.survey_vars[0].default_value == 'audit'
-          - entry.survey_vars[0]['values'] | map(attribute='value') | list == ['audit','cf-audit','prepare-tunnel','deploy','diagnose','cutover','countries','origin-network','origin-switch']
+          - entry.survey_vars[0]['values'] | map(attribute='value') | list == ['audit','cf-audit','prepare-tunnel','deploy','diagnose','cutover','countries','origin-network','origin-switch','update']
           - "'core-resource-standard-assert.yml' in (audit | to_json)"
           - "'pvesh' in (audit | to_json)"
           - "'core60-cloudflare-audit.yml' in (audit | to_json)"
@@ -30,6 +30,8 @@
           - "'core60-deploy.yml' in (audit | to_json)"
           - "'core60-cloudflare-cutover.yml' in (audit | to_json)"
           - "'core60-country-report.yml' in (audit | to_json)"
+          - "'core60-update-stats.yml' in (audit | to_json)"
+          - "'pct, destroy' not in (lookup('ansible.builtin.file', root ~ '/tasks/core60-update-stats.yml'))"
           - "'core60-network-origin.yml' in (audit | to_json)"
           - "'core60-cloudflare-origin-switch.yml' in (audit | to_json)"
           - "'https://telemetry.digitalhouses.vip/healthz' in (audit | to_json)"

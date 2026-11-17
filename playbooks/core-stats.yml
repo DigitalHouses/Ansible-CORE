@@ -14,7 +14,7 @@
     - name: Refuse any deployment or a foreign PVE site
       ansible.builtin.assert:
         that:
-          - core60_action in ['audit', 'cf-audit', 'prepare-tunnel', 'deploy', 'diagnose', 'cutover', 'countries', 'origin-network', 'origin-switch']
+          - core60_action in ['audit', 'cf-audit', 'prepare-tunnel', 'deploy', 'diagnose', 'cutover', 'countries', 'origin-network', 'origin-switch', 'update']
           - pve.ipv4 == '192.168.11.240'
           - (core_stats_ctid | int) == 1245
           - core_resource_standard.stats_ct_name == 'dh-stats-CORE'
@@ -161,6 +161,10 @@
     - name: Configure protected LAN origin 192.168.11.245 for dh-core Tunnel
       ansible.builtin.include_tasks: ../tasks/core60-network-origin.yml
       when: core60_action == 'origin-network'
+
+    - name: Update installed DH Stats code and local dashboard only
+      ansible.builtin.include_tasks: ../tasks/core60-update-stats.yml
+      when: core60_action == 'update'
 
     - name: Query foreign telemetry products grouped by country and version
       ansible.builtin.include_tasks: ../tasks/core60-country-report.yml

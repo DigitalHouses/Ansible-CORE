@@ -1,0 +1,45 @@
+---
+# Product-only update; no new CT, DB restore, Cloudflare or DNS changes.
+- name: Require exact running CORE DH Stats CT1245
+  ansible.builtin.assert:
+    that:
+      - core60_existing_id | length == 1
+      - core60_existing_id[0].vmid | int == 1245
+      - core60_existing_id[0].name == 'dh-stats-CORE'
+      - core60_existing_id[0].status == 'running'
+    fail_msg: CORE60_UPDATE_WRONG_CT1245
+
+- name: Stage product-only DH Stats update installer on CORE PVE
+  ansible.builtin.copy:
+    src: ../files/core60/update-stats.sh
+    dest: /run/core60-update-stats.sh
+    owner: root
+    group: root
+    mode: '0700'
+
+- name: Transfer DH Stats updater into CT1245
+  ansible.builtin.command:
+    argv: [pct, push, '1245', /run/core60-update-stats.sh, /root/core60-update-stats.sh]
+  changed_when: true
+
+- name: Update product dashboard and local API without touching PostgreSQL data
+  ansible.builtin.command:
+    argv: [pct, exec, '1245', --, bash, /root/core60-update-stats.sh]
+  register: core60_update_out
+  changed_when: true
+
+- name: Confirm country breakdown, asset deploy and local service acceptance
+  ansible.builtin.assert:
+    that:
+      - "'CORE60_STATS_UPDATE=PASS' in core60_update_out.stdout_lines"
+      - "'CORE60_STATS_COUNTRY_EXPANSION=ENABLED' in core60_update_out.stdout_lines"
+      - core60_update_out.stdout is search('CORE60_COUNTRY_PRODUCT_COUNTS=PASS')
+    fail_msg: CORE60_STATS_UPDATE_ACCEPTANCE_FAILED
+
+- name: Report updated DH Stats application
+  ansible.builtin.debug:
+    msg:
+      - CORE60_UPDATE=PASS
+      - "{{ core60_update_out.stdout_lines | select('match', '^CORE60_') | list }}"
+      - CORE60_POSTGRESQL_DATA=UNCHANGED
+      - CORE60_CLOUDFLARE_TUNNEL=UNCHANGED
