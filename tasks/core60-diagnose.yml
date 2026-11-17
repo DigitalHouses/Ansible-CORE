@@ -33,7 +33,17 @@
         echo PG_READY;
         pg_isready -h 127.0.0.1 2>/dev/null || true;
         echo LAST_JOURNAL;
-        journalctl -u digitalhouses-stats.service -n 7 --no-pager 2>/dev/null | grep -v DATABASE_URL || true
+        journalctl -u digitalhouses-stats.service -n 7 --no-pager 2>/dev/null | grep -v DATABASE_URL || true;
+        echo STATUS_INGEST;
+        systemctl status digitalhouses-stats --no-pager -l 2>&1 | tail -20 || true;
+        echo STATUS_DASH;
+        systemctl status digitalhouses-stats-dashboard-api --no-pager -l 2>&1 | tail -20 || true;
+        echo UVICORN_BIN;
+        ls -l /opt/digitalhouses/digitalhouses-stats/.venv/bin/uvicorn 2>&1 || true;
+        echo CURL_INGEST;
+        curl -sS --max-time 3 -w ' HTTP:%{http_code}' http://127.0.0.1:8080/healthz 2>&1 || true;
+        echo CURL_DASH_API;
+        curl -sS --max-time 3 -w ' HTTP:%{http_code}' http://127.0.0.1:8081/healthz 2>&1 || true
   register: core60_diag
   changed_when: false
 
