@@ -32,4 +32,4 @@ Original source: `DigitalHouses/Ansible-3` is archived for history.
 
 ### CORE DH Stats (№60)
 
-Диагностика и план переезда HOME CT7000 → CORE CT1245/IP .245 без запуска развёртывания: [docs/task60-dh-stats.md](docs/task60-dh-stats.md). Задача №60 пока поддерживает **только audit**.
+CORE DH Stats работает на CT1245/IP `192.168.11.245`; туннель `dh-core` принимает `telemetry.digitalhouses.vip` через защищённый origin `http://192.168.11.245:8082`, локальный dashboard на `:80`. Подробнее: [docs/task60-dh-stats.md](docs/task60-dh-stats.md).

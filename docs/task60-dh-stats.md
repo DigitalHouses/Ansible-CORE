@@ -75,3 +75,34 @@ CORE Semaphore №60 Job **#166 — Success, changed=0**: `dh-core` присут
 `ef829b9e-c410-4b5b-a754-85ab01b9d31b.cfargotunnel.com`; PVE CT1245 и
 имя идентифицированы как `OWN_DH_STATS`, LAN IP `.245` занят именно своим
 работающим контейнером (`OWN_CT_PRESENT`). Публичная телеметрия `HEALTHY`.
+
+## CORE Stats: full LAN origin and foreign-product audit (17.11.2026)
+
+**Current effective configuration, superseding the historical loopback ingress in Job #164 above:**
+
+```text
+Internet dh_ha_apps
+  -> HTTPS telemetry.digitalhouses.vip
+  -> Cloudflare remote-managed Tunnel dh-core
+  -> http://192.168.11.245:8082       (network origin)
+  -> nginx access restriction: only CT1245's own IP / loopback
+  -> http://127.0.0.1:8080          (Stats ingestion FastAPI)
+  -> PostgreSQL inside CORE CT1245
+
+Local LAN dashboard (separate): http://192.168.11.245:80
+```
+
+- `#170` CORE Semaphore `origin-network`: **Success**, installed guarded nginx LAN proxy on CT1245. The proxy is reachable by the cloudflared connector running inside the same CT, while other LAN clients receive HTTP **403**. Existing FastAPI remains loopback-only; no service restarted except nginx reload. The local dashboard remains on `:80`.
+- `#172` CORE Semaphore `origin-switch`: **Success**, Cloudflare API confirms the single ingress destination **`http://192.168.11.245:8082`**. Only the dedicated `dh-core` Tunnel's ingress was changed; no DNS, HOME, historic data or other product resources were modified. Previous ingress is restored automatically if switching fails its checks.
+- Post-change health checks: public `GET /healthz` **200**; public `/api/summary` **404** (dashboard is not public); direct LAN origin `:8082` from DEV **403**; LAN dashboard `/healthz` **200**.
+- New CORE provisioning task installs this network-origin proxy too, so future clean deployments use the same architecture.
+
+Read-only `#168` country/product audit used the **most recent heartbeat per installation**, counting product/version/country without returning installation IDs or tokens. At the time of audit, non-KZ:
+
+| Country | Product | Version | Installations |
+| --- | --- | --- | ---: |
+| NL | `digitalhouses_internet_app` | `0.1.24` | 1 |
+| RU | `digitalhouses_internet_app` | `0.1.24` | 1 |
+| PL | `digitalhouses_internet_app` | `0.1.24` | 1 |
+
+Four other installations were observed in KZ (two Internet App and two Zigbee Monitor App). `CF-IPCountry` indicates where the request originated; VPN/proxy geolocation may affect it. This is not personal identification.
