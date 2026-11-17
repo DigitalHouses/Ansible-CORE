@@ -106,3 +106,13 @@ Read-only `#168` country/product audit used the **most recent heartbeat per inst
 | PL | `digitalhouses_internet_app` | `0.1.24` | 1 |
 
 Four other installations were observed in KZ (two Internet App and two Zigbee Monitor App). `CF-IPCountry` indicates where the request originated; VPN/proxy geolocation may affect it. This is not personal identification.
+
+## Product/agent breakdown within Countries — 17 Nov 2026
+
+- Product source change limited to `DigitalHouses/home-assistant-apps/digitalhouses-stats`, merged in PR [#541](https://github.com/DigitalHouses/home-assistant-apps/pull/541), merge commit `7327e91a`, Stats **v0.4.2**.
+- Existing private `/v1/stats/countries` API returns additive `products` entries per country with display names and `observed_installations`, `active_7d`, `active_30d`. Each installation is assigned to its **last** reported country; each country total equals the sum of its product counters. No installation IDs or authentication tokens are returned.
+- Countries in the LAN dashboard are expandable/collapsible (keyboard-accessible buttons); their expanded lines share the columns **Known / 7d / 30d** with the country totals. Expanded state survives dashboard Refresh. Static assets have cache-busting URLs.
+- CORE task **№60 `update`** updates only the installed DH Stats product/backend/dashboard on CT1245; it does not migrate/delete database contents or touch Cloudflare Tunnel, DNS or other DigitalHouses applications.
+- CORE Semaphore Job **#174: SUCCESS** `CORE60_STATS_VERSION=0.4.2`, `CORE60_STATS_COUNTRY_EXPANSION=ENABLED`, country totals E2E PASS. Regression contract tests passed.
+- Post-update real read-only API check: six countries, 11 installations/heartbeats. `KZ=6`: Internet App=3, Zigbee Monitor App=2, Recorder App=1. `AU=IL=NL=PL=RU=1`: each Internet App=1. All country group sums match the dashboard summary.
+- Public `https://telemetry.digitalhouses.vip/healthz` remained HTTP **200**. Public `/api/countries` remained **404** (countries and dashboard remain LAN-only). PostgreSQL data and Cloudflare origin `192.168.11.245:8082` unchanged.
