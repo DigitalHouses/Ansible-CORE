@@ -30,7 +30,7 @@
 
 - name: Check namespace is not already present in the existing PBS datastore
   ansible.builtin.command:
-    argv: [qm, guest, exec, '2243', --, test, -d, /serzhan-pool/pbs-core/ns/serzhan-home]
+    argv: [qm, guest, exec, '2243', --, test, -d, "/serzhan-pool/pbs-core/ns/{{ core50_home_id }}"]
   register: core50_namespace_before
   changed_when: false
 
@@ -52,7 +52,7 @@
     fail_msg: CORE50_ORPHAN_BOOTSTRAP_TOKEN_REQUIRES_MANUAL_REVIEW
   when: (core50_namespace_before.stdout | from_json).exitcode | int != 0
 
-- name: Create only the missing serzhan-home namespace through PBS client API
+- name: Create missing namespace through PBS client API for {{ core50_home_id }}
   when: (core50_namespace_before.stdout | from_json).exitcode | int != 0
   block:
     - name: Create one-time temporary CORE namespace-bootstrap token
@@ -102,7 +102,7 @@
             IFS= read -r PBS_PASSWORD;
             export PBS_PASSWORD;
             export PBS_FINGERPRINT=B3:FD:4F:73:D8:5E:9A:CC:D3:65:BD:57:1A:48:F7:E7:D8:18:90:38:B8:B6:D2:A4:60:49:93:B7:14:12:94:DB;
-            exec proxmox-backup-client namespace create serzhan-home
+            exec proxmox-backup-client namespace create {{ core50_home_id }}
             --repository 'root@pam!core50-bootstrap@localhost:pbs-core'
         stdin: "{{ (((core50_bootstrap_token.stdout | from_json)['out-data'] | regex_replace('^Result:\\s*', '')) | from_json).value }}"
         stdin_add_newline: true
@@ -116,7 +116,21 @@
   always:
     - name: Remove bootstrap namespace ACL even if namespace creation fails
       ansible.builtin.command:
-        argv: [qm, guest, exec, '2243', --, proxmox-backup-manager, acl, update, /datastore/pbs-core, DatastoreAdmin, --auth-id, 'root@pam!core50-bootstrap', --delete, 'true']
+        argv:
+          - qm
+          - guest
+          - exec
+          - '2243'
+          - --
+          - proxmox-backup-manager
+          - acl
+          - update
+          - /datastore/pbs-core
+          - DatastoreAdmin
+          - --auth-id
+          - 'root@pam!core50-bootstrap'
+          - --delete
+          - 'true'
       register: core50_cleanup_temp_acl
       failed_when: false
       changed_when: false
@@ -134,7 +148,7 @@
 
 - name: Verify CORE namespace directory exists after native PBS creation
   ansible.builtin.command:
-    argv: [qm, guest, exec, '2243', --, test, -d, /serzhan-pool/pbs-core/ns/serzhan-home]
+    argv: [qm, guest, exec, '2243', --, test, -d, "/serzhan-pool/pbs-core/ns/{{ core50_home_id }}"]
   register: core50_namespace_after
   changed_when: false
 
@@ -160,15 +174,15 @@
       - proxmox-backup-manager
       - user
       - create
-      - "serzhan-home-{{ item }}@pbs"
+      - "{{ core50_home_id }}-{{ item }}@pbs"
       - --comment
-      - "DigitalHouses serzhan-home central PBS {{ item }} only"
+      - "DigitalHouses {{ core50_home_id }} central PBS {{ item }} only"
   loop: [push, restore]
   register: core50_user_create
   changed_when: true
   failed_when: (core50_user_create.stdout | from_json).exitcode | int != 0
   when: >-
-    ('serzhan-home-' ~ item ~ '@pbs') not in
+    (core50_home_id ~ '-' ~ item ~ '@pbs') not in
     (((core50_users_before.stdout | from_json)['out-data'] | from_json) | map(attribute='userid') | list)
 
 - name: Prepare limited, independently revocable API token for each HOME role
@@ -199,10 +213,10 @@
   ansible.builtin.debug:
     msg:
       - CORE50_TLS_FINGERPRINT=MATCHED_DIRECTLY_ON_CORE_PBS
-      - CORE50_HOME_ID=serzhan-home
-      - CORE50_NAMESPACE=pbs-core/serzhan-home
-      - CORE50_PUSH_AUTH_ID=serzhan-home-push@pbs!core50
-      - CORE50_RESTORE_AUTH_ID=serzhan-home-restore@pbs!core50
+      - CORE50_HOME_ID={{ core50_home_id }}
+      - CORE50_NAMESPACE=pbs-core/{{ core50_home_id }}
+      - CORE50_PUSH_AUTH_ID={{ core50_home_id }}-push@pbs!core50
+      - CORE50_RESTORE_AUTH_ID={{ core50_home_id }}-restore@pbs!core50
       - CORE50_HOME_CREDS=PROTECTED_CORE_ROOT_ONLY_FILES
       - CORE50_HOME_CREDS_DELIVERY=HOME_SEMAPHORE_05_OPERATOR_STEP
       - CORE50_HOME_PBS_PUSH=NOT_RUN

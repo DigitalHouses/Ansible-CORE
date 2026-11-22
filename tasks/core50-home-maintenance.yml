@@ -1,0 +1,168 @@
+---
+# CORE50 native PBS maintenance for a single prepared HOME namespace.
+# Verify is safe to schedule. Prune is prepared DISABLED: no snapshot deletion
+# until the retention policy has been approved and activated separately.
+- name: Require existing HOME namespace before maintenance
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, test, -d, "/serzhan-pool/pbs-core/ns/{{ core50_home_id }}"]
+  register: core50_maintenance_ns
+  changed_when: false
+  failed_when: core50_maintenance_ns.rc != 0 or (core50_maintenance_ns.stdout | from_json).exitcode | int != 0
+
+- name: Read current native PBS Verify jobs
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, proxmox-backup-manager, verify-job, list, --output-format, json]
+  register: core50_maint_verify_raw
+  changed_when: false
+  failed_when: >-
+    core50_maint_verify_raw.rc != 0 or
+    (core50_maint_verify_raw.stdout | from_json).exitcode | int != 0 or
+    ((core50_maint_verify_raw.stdout | from_json)['out-truncated'] | default(false) | bool)
+
+- name: Select only this HOME native Verify job
+  ansible.builtin.set_fact:
+    core50_maint_verify_jobs: >-
+      {{ ((core50_maint_verify_raw.stdout | from_json)['out-data'] | from_json)
+         | selectattr('id', 'equalto', 'core50-' ~ core50_home_id) | list }}
+  when:
+    - core50_maint_verify_raw.rc == 0
+    - (core50_maint_verify_raw.stdout | from_json).exitcode | int == 0
+    - not ((core50_maint_verify_raw.stdout | from_json)['out-truncated'] | default(false) | bool)
+
+- name: Reject conflicting Verify job rather than altering another operator's settings
+  ansible.builtin.assert:
+    that:
+      - core50_maint_verify_jobs | default([]) | length <= 1
+      - >-
+        core50_maint_verify_jobs | default([]) | length == 0 or
+        (core50_maint_verify_jobs[0].store == 'pbs-core' and
+         core50_maint_verify_jobs[0].ns == core50_home_id and
+         core50_maint_verify_jobs[0]['max-depth'] | int == 0 and
+         core50_maint_verify_jobs[0]['ignore-verified'] | bool and
+         core50_maint_verify_jobs[0].schedule | default('', true) in ['', '09:00'])
+    fail_msg: CORE50_VERIFY_JOB_CONFLICT
+
+- name: Create daily namespace-only Verify with no child namespace recursion
+  ansible.builtin.command:
+    argv:
+      - qm
+      - guest
+      - exec
+      - '2243'
+      - --
+      - proxmox-backup-manager
+      - verify-job
+      - create
+      - "core50-{{ core50_home_id }}"
+      - --store
+      - pbs-core
+      - --ns
+      - "{{ core50_home_id }}"
+      - --max-depth
+      - '0'
+      - --ignore-verified
+      - 'true'
+      - --read-threads
+      - '1'
+      - --verify-threads
+      - '2'
+      - --schedule
+      - '09:00'
+  register: core50_maint_verify_create
+  changed_when: true
+  failed_when: core50_maint_verify_create.rc != 0 or (core50_maint_verify_create.stdout | from_json).exitcode | int != 0
+  when: core50_maint_verify_jobs | length == 0
+
+- name: Add schedule only to the legacy manual Verify job for this HOME
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, proxmox-backup-manager, verify-job, update, "core50-{{ core50_home_id }}", --schedule, '09:00']
+  register: core50_maint_verify_schedule
+  changed_when: true
+  failed_when: core50_maint_verify_schedule.rc != 0 or (core50_maint_verify_schedule.stdout | from_json).exitcode | int != 0
+  when:
+    - core50_maint_verify_jobs | length == 1
+    - (core50_maint_verify_jobs[0].schedule | default('', true)) == ''
+
+- name: Read existing native PBS Prune jobs
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, proxmox-backup-manager, prune-job, list, --output-format, json]
+  register: core50_maint_prune_raw
+  changed_when: false
+  failed_when: >-
+    core50_maint_prune_raw.rc != 0 or
+    (core50_maint_prune_raw.stdout | from_json).exitcode | int != 0 or
+    ((core50_maint_prune_raw.stdout | from_json)['out-truncated'] | default(false) | bool)
+
+- name: Select only this HOME Prune job
+  ansible.builtin.set_fact:
+    core50_maint_prune_jobs: >-
+      {{ ((core50_maint_prune_raw.stdout | from_json)['out-data'] | from_json)
+         | selectattr('id', 'equalto', 'core50-prune-' ~ core50_home_id) | list }}
+  when:
+    - core50_maint_prune_raw.rc == 0
+    - (core50_maint_prune_raw.stdout | from_json).exitcode | int == 0
+    - not ((core50_maint_prune_raw.stdout | from_json)['out-truncated'] | default(false) | bool)
+
+- name: Refuse existing Prune jobs with conflicting scope or enabled retention
+  ansible.builtin.assert:
+    that:
+      - core50_maint_prune_jobs | default([]) | length <= 1
+      - >-
+        core50_maint_prune_jobs | default([]) | length == 0 or
+        (core50_maint_prune_jobs[0].store == 'pbs-core' and
+         core50_maint_prune_jobs[0].ns == core50_home_id and
+         core50_maint_prune_jobs[0]['max-depth'] | int == 0 and
+         core50_maint_prune_jobs[0].disable | default(false) | bool)
+    fail_msg: CORE50_PRUNE_JOB_CONFLICT_NO_AUTOMATIC_DELETION
+
+- name: Prepare disabled namespace-only Prune retention for later approval
+  ansible.builtin.command:
+    argv:
+      - qm
+      - guest
+      - exec
+      - '2243'
+      - --
+      - proxmox-backup-manager
+      - prune-job
+      - create
+      - "core50-prune-{{ core50_home_id }}"
+      - --store
+      - pbs-core
+      - --ns
+      - "{{ core50_home_id }}"
+      - --max-depth
+      - '0'
+      - --schedule
+      - '10:00'
+      - --disable
+      - 'true'
+      - --keep-daily
+      - '14'
+      - --keep-weekly
+      - '8'
+      - --keep-monthly
+      - '12'
+  register: core50_maint_prune_create
+  changed_when: true
+  failed_when: core50_maint_prune_create.rc != 0 or (core50_maint_prune_create.stdout | from_json).exitcode | int != 0
+  when: core50_maint_prune_jobs | length == 0
+
+- name: Confirm native Prune remains disabled without deletion of existing snapshots
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, proxmox-backup-manager, prune-job, show, "core50-prune-{{ core50_home_id }}", --output-format, json]
+  register: core50_maint_prune_readback
+  changed_when: false
+  failed_when: >-
+    core50_maint_prune_readback.rc != 0 or
+    (core50_maint_prune_readback.stdout | from_json).exitcode | int != 0 or
+    not (((core50_maint_prune_readback.stdout | from_json)['out-data'] | from_json).disable | default(false) | bool)
+
+- name: Report CORE maintenance scope and explicitly disabled retention
+  ansible.builtin.debug:
+    msg:
+      - "CORE50_HOME={{ core50_home_id }}"
+      - "CORE50_VERIFY=09:00_PBS_LOCAL_TIME"
+      - "CORE50_PRUNE=DISABLED_REVIEW_RETENTION_BEFORE_ACTIVATION"
+      - CORE50_RETENTION_DRAFT=14_DAILY_8_WEEKLY_12_MONTHLY
+      - CORE50_SNAPSHOT_DELETION=NONE

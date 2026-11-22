@@ -13,6 +13,7 @@
     core50_site: "{{ lookup('ansible.builtin.file', '/etc/digitalhouses/site-id') | trim }}"
     core50_profile: "{{ lookup('ansible.builtin.file', '/etc/digitalhouses/site-profile') | trim }}"
     core50_action: "{{ DH_CORE50_ACTION | default('audit', true) }}"
+    core50_home_id: "{{ DH_CORE50_HOME_ID | default('serzhan-home', true) | trim }}"
   tasks:
     - name: Refuse a HOME runner or an unexpected PVE
       ansible.builtin.assert:
@@ -21,7 +22,9 @@
           - core50_profile == 'core'
           - pve.ipv4 == '192.168.11.240'
           - pve.node | length > 0
-          - core50_action in ['audit', 'prepare', 'verify']
+          - core50_home_id is match('^[a-z0-9][a-z0-9-]{0,38}[a-z0-9]$')
+          - core50_home_id != 'dh-core'
+          - core50_action in ['audit', 'prepare', 'verify', 'maintenance']
         fail_msg: CORE50_MUST_RUN_FROM_DH_CORE_SEMAPHORE
 
     - name: Assert canonical CORE bootstrap profile and guest ID mapping
@@ -41,6 +44,7 @@
           -o UserKnownHostsFile=/var/lib/semaphore/.ssh/known_hosts
         core50_expected_node: "{{ pve.node }}"
         core50_action: "{{ core50_action }}"
+        core50_home_id: "{{ core50_home_id }}"
       changed_when: false
 
 - name: "50 | Audit central PBS backup configuration"
@@ -108,13 +112,21 @@
           - (core50_datastores | selectattr('name', 'equalto', 'pbs-core') | first).path == '/serzhan-pool/pbs-core'
         fail_msg: CORE50_CENTRAL_DATASTORE_MISSING_OR_CHANGED
 
-    - name: Prepare CORE receiving side of serzhan-home Push/Restore
+    - name: Audit freshness of all HOME namespaces
+      ansible.builtin.include_tasks: ../tasks/core50-home-audit.yml
+      when: core50_action == 'audit'
+
+    - name: Prepare CORE receiving side of selected HOME Push/Restore
       ansible.builtin.include_tasks: ../tasks/core50-home-prepare.yml
       when: core50_action == 'prepare'
 
-    - name: Verify only received serzhan-home backups on CORE PBS
+    - name: Verify only received snapshots from selected HOME on CORE PBS
       ansible.builtin.include_tasks: ../tasks/core50-home-verify.yml
       when: core50_action == 'verify'
+
+    - name: Configure native namespace-only Verify and disabled Prune for prepared HOME
+      ansible.builtin.include_tasks: ../tasks/core50-home-maintenance.yml
+      when: core50_action in ['prepare', 'maintenance']
 
     - name: Report read-only backup configuration status
       ansible.builtin.debug:
@@ -124,8 +136,9 @@
           - CORE50_DATASTORE=pbs-core
           - "CORE50_LEGACY_REMOTE_COUNT={{ core50_remotes | length }}"
           - "CORE50_LEGACY_PULL_SYNC_JOB_COUNT={{ core50_sync_jobs | length }}"
+          - "CORE50_HOME_ID={{ core50_home_id }}"
           - CORE50_TARGET_MODEL=HOME_PUSH_TO_CORE_PBS_PER_HOME_NAMESPACE
-          - CORE50_HOME_TO_CORE_TRANSPORT=HOME34_TAILSCALE_ROUTE_VERIFIED_E2E_PENDING
+          - CORE50_HOME_TO_CORE_TRANSPORT=HOME34_TAILSCALE_PUSH_CONTROLLED_BY_HOME
           - CORE50_B2=DEFERRED
-          - "CORE50_BACKUP_E2E={{ 'PUSH_AND_VERIFY_COMPLETE_RESTORE_PENDING' if core50_action == 'verify' else 'SEE_HOME34_PUSH_AND_CORE_VERIFY_LOGS' }}"
-          - "CORE50_NEXT={{ 'HOME34_RESTORE_STORAGE_AND_TEST_RESTORE' if core50_action == 'verify' else 'CORE50_VERIFY_AFTER_HOME34_PUSH' }}"
+          - CORE50_BACKUP_E2E=CHECK_FRESH_SNAPSHOTS_AND_NATIVE_TASK_HISTORY
+          - CORE50_PRUNE=DISABLED_BY_DEFAULT_NO_SNAPSHOT_DELETION

@@ -1,5 +1,49 @@
 # №50 — Central Backup
 
+## Актуальное состояние и масштабирование (22.11.2026)
+
+№50 принимает параметр `DH_CORE50_HOME_ID` (по умолчанию `serzhan-home`).
+Новый HOME не требуется добавлять в код или allowlist: у каждого дома
+отдельный namespace `pbs-core/<home-id>` и два отдельных PBS identity/token:
+`<home-id>-push@pbs!core50` (`DatastoreBackup`) и
+`<home-id>-restore@pbs!core50` (`DatastoreReader`). ACL ограничены одним
+namespace. Секреты сохраняются только на CORE PBS в
+`/root/.digitalhouses/core50/<home-id>-{push,restore}.json` с режимом `0600`.
+Существующие токены **не перевыпускаются**; конфликт файла и токена
+вызывает отказ, а не автоматическую ротацию. HOME №34 по-прежнему сам
+создаёт и запускает Push через Tailscale; CORE не меняет HOME.
+
+Действия Semaphore №50:
+
+- `audit` — без изменений: обнаружить все namespaces HOME (кроме `dh-core`),
+  посчитать реальные manifests, определить время последнего snapshot и
+  вывести `FRESH` (не старше 36 часов), `STALE` или `MISSING`.
+- `prepare` — подготовить **только выбранный** namespace и Push/Restore
+  credentials с минимальными правами; существующие сохранить. Также
+  настроить Verify daily и отключённый Prune для этого HOME.
+- `verify` — вручную запустить namespace-only PBS Verify и проверить
+  **завершение worker со статусом OK**.
+- `maintenance` — штатный Verify выбранного HOME ежедневно в **09:00
+  по системному времени PBS CORE (UTC)**, после HOME Push в 05:00 UTC. Для него же создаётся **отключённое**
+  (`disable=true`) Prune-задание на 10:00 с предварительной политикой
+  `keep-daily=14`, `keep-weekly=8`, `keep-monthly=12`, `max-depth=0`.
+  Prune не выполняется и не включается автоматически: сроки хранения
+  требуют отдельного согласования. Существующие snapshots не удаляются.
+
+На 22.11.2026 в 06:38 по Алматы (01:38 UTC) на CORE в
+`pbs-core/serzhan-home` по-прежнему **21 snapshot**, последний
+`2026-11-13T21:46:56Z`. Реальный read-only Ansible-audit на CORE
+PVE завершился `ok=9 changed=0 failed=0`, `AGE_HOURS=195.9`,
+`FRESHNESS=STALE`. Важно: HOME PBS работает в UTC, поэтому его
+задание `05:00` ожидается в **10:00 по Алматы**. На момент проверки
+оно ещё не должно было сработать; нельзя считать это неудачным Push.
+Успешность первого автоматического Push требует отдельной проверки
+новых manifests и штатного worker после 05:00 UTC.
+
+Ни `core50-home-*`, ни `maintenance` не удаляют snapshots и не
+выполняют Prune, GC, Pull или перенастройку PBS datastore.
+Исторические инструкции пилота ниже оставлены только для истории.
+
 **Актуальная архитектура:** [Central Backup HOME Push → CORE](architecture-central-backup.md).
 Решение принято 13.11.2026. **Ранее запланированная CORE Pull Sync
 заменена на HOME Push Sync.** Старые аудиты отражают историческое

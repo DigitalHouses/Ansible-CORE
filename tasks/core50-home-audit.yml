@@ -1,0 +1,86 @@
+---
+# CORE50 audit: discovery and freshness use actual PBS snapshot manifests.
+# No modification to backups, namespaces, tokens, retention or HOME.
+- name: Read all top-level CORE PBS namespaces
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, find, /serzhan-pool/pbs-core/ns, -mindepth, '1', -maxdepth, '1', -type, d, -printf, '%f\n']
+  register: core50_home_namespaces_raw
+  changed_when: false
+
+- name: Require complete PBS namespace inventory
+  ansible.builtin.assert:
+    that:
+      - core50_home_namespaces_raw.rc == 0
+      - (core50_home_namespaces_raw.stdout | from_json).exitcode | int == 0
+      - not ((core50_home_namespaces_raw.stdout | from_json)['out-truncated'] | default(false) | bool)
+    fail_msg: CORE50_NAMESPACE_AUDIT_INCOMPLETE
+
+- name: Discover all HOME namespaces without an allowlist
+  ansible.builtin.set_fact:
+    core50_home_namespaces: >-
+      {{ ((core50_home_namespaces_raw.stdout | from_json)['out-data']).splitlines()
+         | reject('equalto', 'dh-core') | sort | list }}
+
+- name: Require valid HOME namespace IDs from the PBS filesystem
+  ansible.builtin.assert:
+    that: item is match('^[a-z0-9][a-z0-9-]{0,38}[a-z0-9]$')
+    fail_msg: CORE50_UNEXPECTED_NAMESPACE_NAME
+  loop: "{{ core50_home_namespaces }}"
+
+- name: Read CORE PBS UTC time for independent freshness calculation
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, date, -u, '+%Y-%m-%dT%H:%M:%SZ']
+  register: core50_audit_time
+  changed_when: false
+
+- name: Count actual snapshots and obtain the most recent timestamp for each HOME
+  ansible.builtin.command:
+    argv:
+      - qm
+      - guest
+      - exec
+      - '2243'
+      - --
+      - sh
+      - -c
+      - >-
+        find "$1" -type f -name index.json.blob -printf '%h\n'
+        | awk -F/ '{n++; if ($NF > latest) latest=$NF}
+        END {printf "%d %s\n",n,latest}'
+      - core50-audit
+      - "/serzhan-pool/pbs-core/ns/{{ item }}"
+  loop: "{{ core50_home_namespaces }}"
+  register: core50_audit_home_backups
+  changed_when: false
+
+- name: Require every snapshot inventory to finish without truncation
+  ansible.builtin.assert:
+    that:
+      - item.rc == 0
+      - (item.stdout | from_json).exitcode | int == 0
+      - not ((item.stdout | from_json)['out-truncated'] | default(false) | bool)
+      - ((item.stdout | from_json)['out-data'] | trim) is match('^[0-9]+( [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z)?$')
+    fail_msg: CORE50_HOME_SNAPSHOT_INVENTORY_FAILED
+  loop: "{{ core50_audit_home_backups.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Show real age of the latest received snapshot for every HOME
+  ansible.builtin.debug:
+    msg:
+      - "HOME_ID={{ item.item }}"
+      - "SNAPSHOTS={{ snapshot_fields[0] }}"
+      - "LATEST_UTC={{ latest_stamp | default('NONE', true) }}"
+      - "AGE_HOURS={{ (age_hours | float | round(1)) if latest_stamp else 'N/A' }}"
+      - "FRESHNESS={{ 'MISSING' if not latest_stamp else ('FRESH' if age_hours | float <= 36 else 'STALE') }}"
+  vars:
+    snapshot_fields: "{{ ((item.stdout | from_json)['out-data'] | trim).split() }}"
+    latest_stamp: "{{ snapshot_fields[1] if snapshot_fields | length > 1 else '' }}"
+    age_hours: >-
+      {{ (((((core50_audit_time.stdout | from_json)['out-data'] | trim)
+             | to_datetime('%Y-%m-%dT%H:%M:%SZ')) -
+            (latest_stamp | to_datetime('%Y-%m-%dT%H:%M:%SZ'))).total_seconds() / 3600)
+         if latest_stamp else -1 }}
+  loop: "{{ core50_audit_home_backups.results }}"
+  loop_control:
+    label: "{{ item.item }}"
