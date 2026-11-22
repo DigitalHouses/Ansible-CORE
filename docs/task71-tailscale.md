@@ -66,6 +66,11 @@ exit node, subnet router и Tailscale SSH. Существующие клиент
 - Удалены устаревшая операция `migrate`, её task-файл, диагностика
   стороннего VPN-сервиса и устаревшее поле отчёта. История прошлых
   миграций сохранена в Git и журналах Semaphore.
+- CORE №00 **Job #180**: `success`; каталог №71 теперь содержит только
+  `audit/install/configure/join/update`.
+- CORE №71 **Job #181**: `audit/both`, `success`, `changed=0`, `failed=0`;
+  оба клиента версии `1.104.7`, `Running`, локальный DNS и default route
+  не изменились. В живом отчёте отсутствуют поля стороннего VPN.
 
 ## Источники
 
