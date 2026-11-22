@@ -93,7 +93,7 @@ tasks:
           - {name: "Включить Debian unattended-upgrades только для cloudflared в CT1245 (без изменения Stats и БД)", value: update-connector}
   - name: 71-Tailscale
     playbook: playbooks/core-tailscale.yml
-    description: "CORE PVE + PBS: stable Tailscale install/configure/join/update; safe PBS WARP migration completed"
+    description: "CORE PVE + PBS: stable Tailscale install/configure/join/update; native auto-update"
     survey_vars:
       - name: DH_CORE71_ACTION
         title: "Tailscale — действие"
@@ -105,8 +105,7 @@ tasks:
           - {name: "Проверить состояние без изменений", value: audit}
           - {name: "Установить пакет Tailscale (без регистрации)", value: install}
           - {name: "Настроить DNS/маршруты на подключённом узле", value: configure}
-          - {name: "Подключить к tailnet (auth key из №05; PBS только без WARP)", value: join}
-          - {name: "Миграция PBS: остановить WARP и подключить Tailscale с откатом", value: migrate}
+          - {name: "Подключить к tailnet (auth key из №05)", value: join}
           - {name: "Обновить только пакет Tailscale", value: update}
       - name: DH_CORE71_TARGET
         title: "Узел CORE"

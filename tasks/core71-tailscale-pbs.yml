@@ -44,18 +44,6 @@
       - (core71_pbs_dns_before.stdout | from_json).exitcode | int == 0
     fail_msg: CORE71_PBS_NETWORK_BASELINE_UNAVAILABLE
 
-- name: Read CORE PBS Cloudflare WARP service state
-  ansible.builtin.command:
-    argv: [qm, guest, exec, '2243', --, systemctl, is-active, warp-svc]
-  register: core71_pbs_warp
-  changed_when: false
-
-- name: Forbid tailnet join beside active Cloudflare WARP in CORE PBS
-  ansible.builtin.assert:
-    that: (core71_pbs_warp.stdout | from_json).exitcode | int != 0
-    fail_msg: CORE71_PBS_WARP_ACTIVE_MIGRATE_SEPARATELY_BEFORE_JOIN
-  when: core71_action in ['join', 'configure']
-
 - name: Read CORE PBS Debian release when package operation requested
   ansible.builtin.command:
     argv: [qm, guest, exec, '2243', --, cat, /etc/os-release]
@@ -82,10 +70,6 @@
     that: (core71_pbs_package_before.stdout | from_json).exitcode | int == 0
     fail_msg: CORE71_PBS_INSTALL_TAILSCALE_FIRST
   when: core71_action in ['join', 'configure']
-
-- name: Run one-time CORE PBS WARP to Tailscale migration with rollback
-  ansible.builtin.include_tasks: core71-tailscale-migrate.yml
-  when: core71_action == 'migrate'
 
 - name: Download official stable Tailscale key inside CORE PBS
   ansible.builtin.command:
@@ -304,18 +288,11 @@
   changed_when: false
   when: (core71_pbs_package_after.stdout | from_json).exitcode | int == 0
 
-- name: Read final WARP service state after PBS Tailscale operation
-  ansible.builtin.command:
-    argv: [qm, guest, exec, '2243', --, systemctl, is-active, warp-svc]
-  register: core71_pbs_warp_final
-  changed_when: false
-
 - name: Report CORE PBS Tailscale state without secrets
   ansible.builtin.debug:
     msg:
       - CORE71_TARGET=CORE_PBS_VM2243_192.168.11.243
       - "CORE71_ACTION={{ core71_action }}"
       - "CORE71_PACKAGE={{ (core71_pbs_package_after.stdout | from_json).get('out-data', 'NOT_INSTALLED') | trim if (core71_pbs_package_after.stdout | from_json).exitcode | int == 0 else 'NOT_INSTALLED' }}"
-      - "CORE71_WARP={{ 'ACTIVE' if (core71_pbs_warp_final.stdout | from_json).exitcode | int == 0 else 'INACTIVE' }}"
       - "CORE71_TAILNET={{ ((core71_pbs_status_after.stdout | from_json)['out-data'] | from_json).BackendState if (core71_pbs_package_after.stdout | from_json).exitcode | int == 0 and (core71_pbs_status_after.stdout | from_json).exitcode | int == 0 else 'NOT_CONNECTED' }}"
       - CORE71_DEFAULT_ROUTE_AND_DNS=UNCHANGED

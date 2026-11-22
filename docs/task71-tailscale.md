@@ -1,244 +1,74 @@
-# CORE №71 — Tailscale (PVE + PBS)
+# CORE №71 — Tailscale PVE + PBS
 
-**Назначение:** обслуживание Tailscale на центральных узлах без изменения
-их обычного DNS, default route, PVE/PBS сервисов и работающего Cloudflare.
-Код относится только к `DigitalHouses/Ansible-CORE`.
+## Назначение
 
-## Фактическая инфраструктура (13.11.2026)
+Единый штатный Tailscale на центральных узлах DigitalHouses:
 
-| Узел | ОС | IP | Tailscale перед внедрением |
-| --- | --- | --- | --- |
-| CORE PVE (ASRock) | Debian 12 bookworm | `192.168.11.240` | отсутствует |
-| CORE PBS VM2243 | Debian 13 trixie | `192.168.11.243` | отсутствует, **WARP активен** |
+| Узел | LAN | Управление |
+| --- | --- | --- |
+| CORE PVE | `192.168.11.240` | SSH из CORE Semaphore |
+| CORE PBS, VM2243 | `192.168.11.243` | QEMU Guest Agent через CORE PVE |
 
-CORE PVE и CORE PBS имеют обычный default route через локальный роутер
-`192.168.11.1`. PBS получает команды через штатный QEMU Guest Agent:
-не создаём дополнительный SSH-ключ/туннель до гостя.
+Cloudflare Tunnel + Access отдельно обслуживают доступ к веб-сервисам.
+Задача №71 не изменяет Cloudflare, PBS datastores, конфигурацию VM
+или HOME и не выполняет глобальный `apt upgrade`.
 
 ## Semaphore
 
-Новый шаблон **`71-Tailscale`**, playbook
-`playbooks/core-tailscale.yml`, 2 Survey:
+Шаблон **`71-Tailscale`**; playbook `playbooks/core-tailscale.yml`.
 
-1. `DH_CORE71_ACTION`: `audit` (по умолчанию), `install`,
-   `configure`, `join`, `update`.
-2. `DH_CORE71_TARGET`: `pve`, `pbs`, `both` (по умолчанию).
+- `DH_CORE71_ACTION`: `audit` (по умолчанию), `install`, `configure`, `join`, `update`.
+- `DH_CORE71_TARGET`: `pve`, `pbs`, `both` (по умолчанию).
+- Секрет `DH_TAILSCALE_AUTH_KEY` из CORE №05 требуется **только** для `join`.
+  Передаётся во временном защищённом файле и после входа удаляется.
 
-**CORE №05** содержит дополнительный native secret
-`DH_TAILSCALE_AUTH_KEY`. Только при `join` этот ключ используется
-для входа в **существующий** tailnet. Пустой ключ = задача `join`
-завершается без сетевых изменений. Параметр передаётся как временный
-защищённый файл с последующим удалением, не как значение CLI.
-Предпочтительнее одноразовый ключ для отдельно выбранного узла.
-Запись credentials в Git/логи запрещена.
+| Действие | Поведение |
+| --- | --- |
+| `audit` | Только чтение: установленная версия, подключение к tailnet, DNS и маршрут по умолчанию |
+| `install` | Установить официальный stable Tailscale через APT, без входа в tailnet |
+| `configure` | Применить безопасный профиль к уже подключённому клиенту |
+| `join` | Присоединить незарегистрированный клиент к существующему tailnet |
+| `update` | Разово обновить только установленный пакет `tailscale` |
 
-## Поведение действий
-
-- **audit:** read-only версия пакета, статус клиента, default route
-  и DNS; для PBS дополнительно active/inactive Cloudflare WARP.
-- **install:** официальный stable APT repository для Debian
-  bookworm/trixie, установка **только** пакета `tailscale`;
-  не логинится в tailnet и не меняет Tailscale routes.
-- **configure:** доступно только для уже зарегистрированного
-  клиента, применяет одинаковый безопасный профиль.
-- **join:** через существующий CORE №05 secret; не трогает уже
-  подключённый узел. На PBS **запрещено**, пока `warp-svc` active.
-  Это предотвращает конфликт WARP/Tailscale в 100.x сети.
-- **update:** обновляет **только уже установленный** Tailscale
-  из официального stable APT repo. Не устанавливает Tailscale
-  на отсутствующие узлы и не делает `apt upgrade`.
-
-Безопасный профиль:
+Профиль Tailscale на обоих узлах:
 
 ```bash
 tailscale set --accept-dns=false --accept-routes=false --exit-node= \
   --advertise-routes= --advertise-exit-node=false --auto-update=true
 ```
 
-Tailscale IP из 100.64.0.0/10 сохраняется; маршрут до tailnet
-не считать «перехватом всего интернета». Не включать subnet
-router, exit node и Tailscale SSH по умолчанию.
+Задача сравнивает локальные DNS и default route до/после изменений;
+любой неожиданный сдвиг приводит к ошибке. Не настраиваются
+exit node, subnet router и Tailscale SSH. Существующие клиенты не
+выходят из tailnet при обычном `configure`.
 
-## Переход с Cloudflare WARP на CORE PBS
+## Автоматические обновления
 
-**Отдельная миграция:** CORE №71 не удаляет и не останавливает
-`warp-svc`, не редактирует Cloudflare Zero Trust и не меняет CORE №40.
-Сначала провести безопасную миграцию ранее принятого маршрута CORE →
-HOME, затем убедиться, что `warp-svc` неактивен, и только тогда
-`71 / join / pbs`. Удаление WARP-пакета, Device Profile, неактуальных
-№40 действий — после отдельного принятия миграции.
+- Встроенный Tailscale auto-update включается через `configure` или `join`.
+- **Никаких расписаний Semaphore** для обновления: прежнее расписание ID 1
+  удалено через API, после удаления список расписаний CORE был пуст.
+- Действие `update` остаётся для ручного одноразового запуска.
+- HOME использует такой же встроенный механизм.
+- Для Cloudflare Tunnel используется отдельный стандарт Debian
+  `unattended-upgrades` (CORE №60), без собственного таймера Semaphore.
 
-Cloudflare Access/Tunnel оставляем для административных веб-интерфейсов.
-Cloudflare и Tailscale обновлять в **разные** окна.
+## Подтверждённая приёмка
 
-## Плановое обновление
+- CORE №71 **Job #175**: `configure/both`, `success`, `failed=0` — включён
+  встроенный auto-update на PVE и PBS; Tailscale версии `1.104.7`,
+  оба клиента `Running`, DNS и default route без изменений.
+- CORE №71 **Job #179**: `audit/both`, `success`, `changed=0`, `failed=0` —
+  оба клиента `Running`, DNS и default route без изменений.
+- Tailscale addresses при первоначальной приёмке:
+  `dh-core-pve` — `100.64.243.13`, `dh-core-pbs` — `100.97.126.67`.
+- Проверен прямой CORE PVE ↔ PBS трафик Tailscale; успешность реального
+  PBS Push/Restore подтверждается отдельно профильными задачами HOME/CORE.
+- Удалены устаревшая операция `migrate`, её task-файл, диагностика
+  стороннего VPN-сервиса и устаревшее поле отчёта. История прошлых
+  миграций сохранена в Git и журналах Semaphore.
 
-Предполагается отдельное **Semaphore Schedule** для
-`71 / update / both`, еженедельно в согласованное окно, не совпадающее
-с большой PBS-синхронизацией. Пока оба клиента ещё не установлены
-и PBS WARP не мигрирован, не активировать автоматическую установку,
-`join` или `update` на PBS. До утверждения времени расписания
-разрешён ручной запуск `update` по отдельному узлу.
-
-Отсутствие установленного клиента при `update` означает `skip`,
-а не скрытую установку. Встроенное `tailscale auto-update`
-отключается при `join`/`configure`; расписание Semaphore
-становится единственным управляемым механизмом обновления.
-
-## Критерии приёмки
-
-1. `71 / audit / both` работает без изменений, показывает
-   2 узла, статусы Tailscale и WARP.
-2. `71 / install / pve`, затем `join / pve` только при
-   наличии секретного auth key в №05, без повреждения SSH/DNS/default route.
-3. Повторный `71 / install` не переустанавливает пакет,
-   а `update` повторно без новой версии имеет `changed=0`.
-4. Для PBS сначала миграция с WARP, затем `install/join`.
-5. Проверить `tailscale ping`, стабильность соединения PVE/PBS
-   и реальный PBS Push/Restore в профильных №50/Ansible-HOME.
-6. После успешного E2E — зафиксировать окно еженедельных обновлений
-   и создать/включить Semaphore Schedule.
-
-**Не считать приёмкой:** наличие бинарника или успешный `apt`
-без реального tailnet Connection и передачи данных.
-
-## Документация
+## Источники
 
 - https://tailscale.com/docs/install/linux
-- https://dl.tailscale.com/stable/
 - https://tailscale.com/docs/reference/tailscale-cli
 - https://tailscale.com/docs/features/client/update
-- https://tailscale.com/docs/reference/interoperability
-
-## Живая приёмка каталога и read-only аудита (13.11.2026)
-
-- CORE Git `main`, commit `0faee58`: добавлены playbook, задачи
-  PVE/PBS, Semaphore №71 и secret-поле №05.
-- Semaphore №00 Job **#65**: `success`. Создан №71
-  `71-Tailscale`, template ID **5**, 2 Survey (`action`, `target`);
-  прежние шаблоны и история сохранены. №05 получил пятое
-  Secret Survey-поле; auth key **не вводился**.
-- Semaphore №71 Job **#66**, `audit / both`: `success`,
-  `changed=0`, `failed=0`; CORE PVE `tailscale=NOT_INSTALLED`,
-  CORE PBS VM2243 `tailscale=NOT_INSTALLED`, `WARP=ACTIVE`,
-  для обоих `DEFAULT_ROUTE_AND_DNS=UNCHANGED`.
-- **Не выполнялись:** установка пакетов, вход в tailnet,
-  настройка маршрутов, удаление WARP, запуск реального PBS Push/Restore
-  и создание Semaphore Schedule обновлений.
-
-## Подключение CORE PVE (13.11.2026)
-
-- Job #68: `install/pve`, `success`, Tailscale stable `1.104.7`;
-  локальные DNS и default route не изменены.
-- Job #69: `join/pve` завершился до подключения, поскольку №71
-  некорректно читал native Ansible secret как environment variable;
-  исправлено в Git `eb1f4ae`.
-- Job #70: `join/pve` завершился с ошибкой неподдерживаемого
-  `--auto-update` в `tailscale up`; этот флаг теперь применяется
-  только командой `tailscale set` (Git `f488591`).
-- Job #71: `join/pve`, **success**, Tailscale `Running`,
-  assigned IP **`100.64.243.13`**, no DNS/default route changes,
-  `CorpDNS=false`, `RouteAll=false`, `AutoUpdate.Apply=false`,
-  exit node отсутствует. Temporary auth-key file удалён по playbook.
-- `tailscale ping`: `pve-shahristan` direct `192.168.11.220:41641`
-  (~1ms); `pve-jodar` через DERP(nyc), `pve-ruslan`
-  через DERP(waw). Для больших PBS Push Sync проверить реальный
-  throughput; не считать успешный ping гарантией direct.
-- CORE PBS VM2243 не изменён; `warp-svc` остаётся `active`.
-- Tailscale node сейчас показывается под автоматически определённым
-  именем `pve`; при необходимости задать уникальное имя в tailnet
-  отдельно, не меняя системный hostname Proxmox.
-
-## CORE PBS — переход без пересоздания VM (13.11.2026)
-
-Read-only инспекция показала, что VM2243 — совмещённый сервер,
-а не пустая PBS VM: passthrough ZFS pool `serzhan-pool` 3.62 ТБ,
-занято около 1.18 ТБ, `pbs-serzhan` ~316 ГБ,
-`pbs-core` ~24.3 МБ, documents ~334 ГБ, media ~357 ГБ.
-Поэтому **recreate + import только ради смены VPN не выполняем**:
-никаких операций с ZFS, VM-дисками и datastore.
-
-- Job #72: `install/pbs`, ошибка вызова QEMU Guest Agent
-  при установке пакета; проверка после показала фактически
-  установленный Tailscale `1.104.7`, работающие QGA и WARP.
-- Обработка кратковременного перезапуска QGA исправлена
-  в Git `9672d5a`: проверять наличие пакета после восстановления связи.
-- Job #73: `install/pbs`, **success**, `changed=0`,
-  `failed=0`, Tailscale `NeedsLogin`, WARP `ACTIVE`,
-  DNS/default route без изменений.
-
-### Однократная миграция PBS
-
-В №71 добавлено действие **`migrate`**, допустимо
-**только при `target=pbs`**. Использует секрет из CORE №05,
-проверяет установленный Tailscale и активный WARP, останавливает
-и отключает `warp-svc` (пакет пока оставляет для отката),
-подключает `dh-core-pbs` к tailnet, проверяет связь с
-`dh-core-pve` `100.64.243.13`, status `Running`, маршруты
-и локальный DNS. При ошибке делает `tailscale down` и
-**пытается восстановить WARP**; о необходимости ручной проверки
-сообщает явно.
-
-Удаление WARP пакета и исключение его действий из №40 — отдельный
-последующий шаг **только после успешного теста транспорта**.
-Не удалять Cloudflare Tunnel/Access, не трогать HOME №70.
-
-## Финальная приёмка CORE PBS (13.11.2026)
-
-- CORE №00 Job #74 добавил Survey `migrate` в №71.
-- CORE №71 Job **#75**, `migrate / pbs` — **success**,
-  `failed=0`, `CORE71_TAILNET=Running`,
-  `CORE71_WARP=INACTIVE`, DNS/default route `UNCHANGED`.
-- CORE PBS в tailnet: **`dh-core-pbs`**, `100.97.126.67`.
-  CORE PVE: `dh-core-pve`, `100.64.243.13`.
-- Связь CORE PVE ↔ PBS **direct** (локальный маршрут
-  `192.168.11.243:41641`), Tailscale API PBS `:8007` и
-  LAN API PBS `:8007` возвращают HTTP `401` на запрос без
-  авторизации (PBS сервис отвечает).
-- Пакет `cloudflare-warp` удалён, затем конфигурационные остатки
-  очищены `apt-get purge`; `dpkg -s cloudflare-warp` сообщает
-  `not installed`, unit `warp-svc` удалён.
-- `serzhan-pool`, `pbs-core`, `pbs-serzhan`, media/doc и VM
-  не затронуты; `recreate + import` **не выполнялся**.
-- CORE №40 теперь обслуживает только инфраструктуру и datastore;
-  устаревшие WARP-модули удалены из рабочей версии репозитория.
-  Старые Git commits и история Semaphore остаются.
-- **Предстоит:** проверить HOME PBS → CORE PBS по Tailscale и
-  настоящий Push/Restore, включить автоматический CORE №71 `update`
-  после проверки Schedule. Cloudflare Zero Trust device profile
-  прежнего PBS не удалялся.
-
-## Scheduled CORE Tailscale stable updates (13.11.2026)
-
-- CORE №00 Job #76: `success`. Semaphore №40 Survey now
-  contains only `audit` and `prepare` (no WARP actions).
-- CORE №40 Job #77: `audit`, `success changed=0 failed=0`.
-- CORE №71 Job #78: `audit/both`, `success changed=0 failed=0`;
-  PVE/PBS Tailscale `1.104.7 Running`, WARP `INACTIVE`,
-  default routes and local DNS unchanged.
-- CORE №71 Job #79: `update/both`, `success changed=0 failed=0`;
-  оба клиента `1.104.7`, после update соединение `Running`.
-- Исторически создан Semaphore Schedule **ID 1**,
-  `71-Tailscale Weekly Stable Update (CORE PVE + PBS)`,
-  `template_id=5`. Удалён 17.11.2026: перешли на native Tailscale auto-update.
-  Cron `0 23 * * 6` UTC = воскресенье **04:00 Asia/Almaty**.
-  `task_params.environment` сохранён как
-  `DH_CORE71_ACTION=update`, `DH_CORE71_TARGET=both`.
-- CORE Semaphore schedule timezone по конфигурации не задан,
-  используется UTC; контейнер CT1241 работает в UTC.
-- Cloudflare/другие системные пакеты расписание не обновляет,
-  никаких `apt upgrade` для PVE/PBS и reboot.
-
-## Auto-update as CORE default (17.11.2026)
-
-- For CORE PVE and PBS, action `configure` or `join` enables the built-in
-  stable Tailscale updater with `--auto-update=true`.
-- The CORE Media PBS fresh-import path enables the same setting after identity
-  restore. DNS/default route preferences stay unchanged.
-- Earlier weekly Semaphore schedule ID 1 was deleted through CORE Semaphore API
-  on 17.11.2026 (DELETE returned HTTP 204); a subsequent GET returned zero
-  schedules. Only native Tailscale updates are intended.
-- Applied to both live nodes via CORE №71 Job #175 on 17.11.2026:
-  `configure/both`, `success`, `failed=0`, CORE PVE and PBS Tailscale
-  `Running` on version `1.104.7`, DNS and default routes unchanged.
-  This enables the built-in updater without a weekly Semaphore schedule.
