@@ -57,18 +57,26 @@ tasks:
           - {name: "Перенести CORE PVE backup в pbs-core/dh-core и снять legacy регистрации без удаления ZFS", value: retire-legacy}
   - name: 50-Central Backup
     playbook: playbooks/core-backup.yml
-    description: "01 Аудит; 02 подготовить CORE namespace/токены; 03 проверить целостность резервных копий serzhan-home (PBS Verify, вручную, без удаления)"
+    description: "01 аудит всех HOME; 02 подготовить выбранный HOME; 03 ручной Verify; 04 плановые Verify и безопасный отключённый Prune"
     survey_vars:
       - name: DH_CORE50_ACTION
-        title: "Что сделать на CORE PBS?"
+        title: "CORE PBS — действие"
         type: enum
         target: ""
         required: true
         default_value: audit
         values:
-          - {name: "01 — Проверить настройки CORE PBS (ничего не менять)", value: audit}
-          - {name: "02 — Подготовить namespace и Push/Restore токены (без копирования)", value: prepare}
-          - {name: "03 — ПРОВЕРИТЬ целостность копий serzhan-home (Verify сейчас)", value: verify}
+          - {name: "01 — Аудит свежести всех HOME (без изменений)", value: audit}
+          - {name: "02 — Создать namespace и Push/Restore credentials для HOME", value: prepare}
+          - {name: "03 — Verify snapshots выбранного HOME сейчас", value: verify}
+          - {name: "04 — Настроить Verify daily и неактивный Prune для HOME", value: maintenance}
+      - name: DH_CORE50_HOME_ID
+        title: "HOME ID (для 02–04; пример: serzhan-home)"
+        type: ""
+        target: ""
+        required: true
+        default_value: serzhan-home
+        values: []
   - name: "60-CORE DH Stats"
     playbook: playbooks/core-stats.yml
     description: "Только диагностика: проверить свободен ли CT1245/IP .245 на CORE, статус Cloudflare telemetry и готовность к миграции данных; без развёртывания"

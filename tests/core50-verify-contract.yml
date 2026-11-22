@@ -1,5 +1,5 @@
 ---
-- name: Test CORE50 namespace-only manual PBS Verify contract
+- name: Contract - CORE50 universal HOME receiver remains native, scoped and non-destructive
   hosts: localhost
   connection: local
   gather_facts: false
@@ -7,52 +7,87 @@
     project_dir: "{{ playbook_dir | dirname }}"
     catalog: "{{ lookup('ansible.builtin.file', project_dir ~ '/catalog/tasks.yml') | from_yaml }}"
     playbook: "{{ lookup('ansible.builtin.file', project_dir ~ '/playbooks/core-backup.yml') | from_yaml }}"
+    prepare_tasks: "{{ lookup('ansible.builtin.file', project_dir ~ '/tasks/core50-home-prepare.yml') | from_yaml }}"
+    token_tasks: "{{ lookup('ansible.builtin.file', project_dir ~ '/tasks/core50-home-token.yml') | from_yaml }}"
     verify_tasks: "{{ lookup('ansible.builtin.file', project_dir ~ '/tasks/core50-home-verify.yml') | from_yaml }}"
+    audit_tasks: "{{ lookup('ansible.builtin.file', project_dir ~ '/tasks/core50-home-audit.yml') | from_yaml }}"
+    maintenance_tasks: "{{ lookup('ansible.builtin.file', project_dir ~ '/tasks/core50-home-maintenance.yml') | from_yaml }}"
     core50: "{{ (catalog.tasks | selectattr('name','equalto','50-Central Backup') | list)[0] }}"
     actions: "{{ core50.survey_vars[0]['values'] | map(attribute='value') | list }}"
-    verify_config: "{{ verify_tasks | selectattr('name','search','manual namespace-only Verify job') | first }}"
+    verify_register: "{{ verify_tasks | selectattr('name','search','manual namespace-only Verify job') | first }}"
     verify_run: "{{ verify_tasks | selectattr('name','search','Start and wait for native CORE PBS Verify') | first }}"
     worker_history: "{{ verify_tasks | selectattr('name','search','Read the completed PBS worker history') | first }}"
-    worker_accept: "{{ verify_tasks | selectattr('name','search','Require this Verify worker finished successfully') | first }}"
-    clock_accept: "{{ verify_tasks | selectattr('name','search','Require trustworthy PBS clock') | first }}"
-    match_worker: "{{ verify_tasks | selectattr('name','search','Find only this job') | first }}"
+    prune_create: "{{ maintenance_tasks | selectattr('name','search','disabled namespace-only Prune') | first }}"
+    verify_schedule: "{{ maintenance_tasks | selectattr('name','search','schedule only to the legacy manual Verify') | first }}"
   tasks:
-    - name: Require clear manual 03 action without replacing CORE50 audit or prepare
+    - name: Require variable HOME ID without a registry or hardcoded HOME list
       ansible.builtin.assert:
         that:
-          - actions == ['audit','prepare','verify']
+          - actions == ['audit','prepare','verify','maintenance']
           - core50.survey_vars[0].default_value == 'audit'
-          - "'03' in core50.survey_vars[0]['values'][2].name"
-          - "'Verify' in core50.survey_vars[0]['values'][2].name"
+          - core50.survey_vars[1].name == 'DH_CORE50_HOME_ID'
+          - core50.survey_vars[1].default_value == 'serzhan-home'
+          - "'core50_home_id' in (playbook | to_json)"
+          - "'^[a-z0-9]' in (playbook | to_json)"
+          - "'../tasks/core50-home-audit.yml' in (playbook | to_json)"
+          - "'../tasks/core50-home-maintenance.yml' in (playbook | to_json)"
+          - "'../tasks/core50-home-prepare.yml' in (playbook | to_json)"
           - "'../tasks/core50-home-verify.yml' in (playbook | to_json)"
 
-    - name: Require CORE native Verify bound to single HOME namespace
+    - name: Require identities and privileges to use the selected HOME only
       ansible.builtin.assert:
         that:
-          - verify_config['ansible.builtin.command'].argv[0:6] == ['qm','guest','exec','2243','--','proxmox-backup-manager']
-          - "'--store' in verify_config['ansible.builtin.command'].argv"
-          - "'pbs-core' in verify_config['ansible.builtin.command'].argv"
-          - "'--ns' in verify_config['ansible.builtin.command'].argv"
-          - "'serzhan-home' in verify_config['ansible.builtin.command'].argv"
-          - "'--max-depth' in verify_config['ansible.builtin.command'].argv"
-          - "'0' in verify_config['ansible.builtin.command'].argv"
-          - "'--schedule' not in verify_config['ansible.builtin.command'].argv"
-          - "'--timeout' in verify_run['ansible.builtin.command'].argv"
-          - "'0' in verify_run['ansible.builtin.command'].argv"
-          - "'verify-job' in verify_run['ansible.builtin.command'].argv"
-          - "'run' in verify_run['ansible.builtin.command'].argv"
-          - "'core50-serzhan-home' in verify_run['ansible.builtin.command'].argv"
-          - "'task' in worker_history['ansible.builtin.command'].argv"
-          - "'list' in worker_history['ansible.builtin.command'].argv"
-          - "'--all' in worker_history['ansible.builtin.command'].argv"
-          - "'CORE50_VERIFY_WORKER_MISSING_RUNNING_OR_FAILED' in (worker_accept | to_json)"
-          - "'TASK OK' not in (verify_run.failed_when | to_json)"
-          - "'prune' not in (verify_tasks | to_json)"
-          - "'gc' not in (verify_tasks | to_json)"
+          - "'serzhan-home' not in (prepare_tasks | to_json)"
+          - "'serzhan-home' not in (token_tasks | to_json)"
+          - "'serzhan-home' not in (verify_tasks | to_json)"
+          - "'core50_home_id' in (prepare_tasks | to_json)"
+          - "'core50_home_id' in (token_tasks | to_json)"
+          - "'core50_home_id' in (verify_tasks | to_json)"
+          - "'DatastoreBackup' in (prepare_tasks | to_json)"
+          - "'DatastoreReader' in (prepare_tasks | to_json)"
+          - "'Datastore.Prune' in (token_tasks | to_json)"
+          - "'Datastore.Modify' in (token_tasks | to_json)"
+          - "'TOKEN_FILE_MISMATCH_REQUIRES_REVIEW' in (token_tasks | to_json)"
+          - "'core50-bootstrap' in (prepare_tasks | to_json)"
+          - "'no_log' in (prepare_tasks | to_json)"
 
-    - name: Require non-truncated, valid Jinja expressions for time and worker identity
+    - name: Require native namespace-only Verify and safe worker completion evidence
       ansible.builtin.assert:
         that:
-          - "clock_accept['ansible.builtin.assert'].that[3] | regex_search('is match\\\\(') is not none"
-          - "clock_accept['ansible.builtin.assert'].that[3].endswith(\"match('^[0-9]{10,}$')\")"
-          - "\"'(^|:)core50-serzhan-home$'\" in match_worker['ansible.builtin.set_fact'].core50_verify_task_matches"
+          - verify_register['ansible.builtin.command'].argv[0:6] == ['qm','guest','exec','2243','--','proxmox-backup-manager']
+          - "'--ns' in verify_register['ansible.builtin.command'].argv"
+          - "'--max-depth' in verify_register['ansible.builtin.command'].argv"
+          - "'0' in verify_register['ansible.builtin.command'].argv"
+          - "'--schedule' not in verify_register['ansible.builtin.command'].argv"
+          - "'core50_home_id' in (verify_run | to_json)"
+          - "'--timeout' in verify_run['ansible.builtin.command'].argv"
+          - "'--all' in worker_history['ansible.builtin.command'].argv"
+          - "'CORE50_VERIFY_WORKER_MISSING_RUNNING_OR_FAILED' in (verify_tasks | to_json)"
+          - "'TASK OK' not in (verify_run.failed_when | to_json)"
+          - "'prune-job' not in (verify_tasks | to_json)"
+
+    - name: Require read-only backup freshness for every namespace
+      ansible.builtin.assert:
+        that:
+          - "'index.json.blob' in (audit_tasks | to_json)"
+          - "'AGE_HOURS' in (audit_tasks | to_json)"
+          - "'FRESHNESS' in (audit_tasks | to_json)"
+          - "'36' in (audit_tasks | to_json)"
+          - "'reject' in (audit_tasks | to_json)"
+          - "'qm' in (audit_tasks | to_json)"
+
+    - name: Require scheduled Verify and disabled namespace-only Prune without deletion
+      ansible.builtin.assert:
+        that:
+          - "'09:00' in verify_schedule['ansible.builtin.command'].argv"
+          - "'core50_home_id' in (maintenance_tasks | to_json)"
+          - "'--ns' in prune_create['ansible.builtin.command'].argv"
+          - "'--max-depth' in prune_create['ansible.builtin.command'].argv"
+          - "'--disable' in prune_create['ansible.builtin.command'].argv"
+          - "'true' in prune_create['ansible.builtin.command'].argv"
+          - "'--keep-daily' in prune_create['ansible.builtin.command'].argv"
+          - "'--keep-weekly' in prune_create['ansible.builtin.command'].argv"
+          - "'--keep-monthly' in prune_create['ansible.builtin.command'].argv"
+          - "'prune-job, run' not in (maintenance_tasks | to_json)"
+          - "'--destroy' not in (maintenance_tasks | to_json)"
+          - "'--delete' not in (maintenance_tasks | to_json)"

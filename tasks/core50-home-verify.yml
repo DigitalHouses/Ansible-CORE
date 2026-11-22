@@ -1,9 +1,9 @@
 ---
 # CORE50: run native PBS Verify ONLY for received HOME namespace.
 # Preserve datastore, chunks, backup jobs, ZFS, ACLs and legacy verify schedules.
-- name: Check serzhan-home namespace exists on the approved CORE datastore
+- name: Check namespace exists on the CORE datastore for {{ core50_home_id }}
   ansible.builtin.command:
-    argv: [qm, guest, exec, '2243', --, test, -d, /serzhan-pool/pbs-core/ns/serzhan-home]
+    argv: [qm, guest, exec, '2243', --, test, -d, "/serzhan-pool/pbs-core/ns/{{ core50_home_id }}"]
   register: core50_verify_ns
   changed_when: false
 
@@ -23,7 +23,7 @@
       - '2243'
       - --
       - find
-      - /serzhan-pool/pbs-core/ns/serzhan-home
+      - /serzhan-pool/pbs-core/ns/{{ core50_home_id }}
       - -type
       - f
       - -name
@@ -45,7 +45,7 @@
       - core50_verify_snapshot_paths | default([]) | length > 0
       - >-
         core50_verify_snapshot_paths | reject('match',
-          '^/serzhan-pool/pbs-core/ns/serzhan-home/(vm|ct|host)/[^/]+/[^/]+/index\.json\.blob$')
+          '^/serzhan-pool/pbs-core/ns/' ~ core50_home_id ~ '/(vm|ct|host)/[^/]+/[^/]+/index\.json\.blob$')
         | list | length == 0
     fail_msg: CORE50_VERIFY_NO_VALID_HOME_SNAPSHOTS
 
@@ -57,10 +57,10 @@
 
 - name: Identify only managed HOME namespace verification job
   ansible.builtin.set_fact:
-    core50_verify_job_id: core50-serzhan-home
+    core50_verify_job_id: "{{ 'core50-' ~ core50_home_id }}"
     core50_verify_existing_jobs: >-
       {{ (((core50_verify_jobs_before.stdout | from_json)['out-data']) | from_json)
-         | selectattr('id', 'equalto', 'core50-serzhan-home') | list }}
+         | selectattr('id', 'equalto', 'core50-' ~ core50_home_id) | list }}
   when:
     - core50_verify_jobs_before.rc == 0
     - (core50_verify_jobs_before.stdout | from_json).exitcode | int == 0
@@ -73,10 +73,10 @@
       - >-
         core50_verify_existing_jobs | default([]) | length == 0 or
         (core50_verify_existing_jobs[0].store == 'pbs-core' and
-         core50_verify_existing_jobs[0].ns == 'serzhan-home' and
+         core50_verify_existing_jobs[0].ns == core50_home_id and
          core50_verify_existing_jobs[0]['max-depth'] | int == 0 and
          core50_verify_existing_jobs[0]['ignore-verified'] | bool and
-         (core50_verify_existing_jobs[0].schedule | default('', true)) == '')
+         (core50_verify_existing_jobs[0].schedule | default('', true)) in ['', '09:00'])
     fail_msg: CORE50_VERIFY_JOB_SCOPE_CONFLICT
 
 - name: Register a manual namespace-only Verify job once without creating a schedule
@@ -90,11 +90,11 @@
       - proxmox-backup-manager
       - verify-job
       - create
-      - core50-serzhan-home
+      - core50-{{ core50_home_id }}
       - --store
       - pbs-core
       - --ns
-      - serzhan-home
+      - "{{ core50_home_id }}"
       - --max-depth
       - '0'
       - --ignore-verified
@@ -112,7 +112,7 @@
 
 - name: Read back native Verify configuration after possible creation
   ansible.builtin.command:
-    argv: [qm, guest, exec, '2243', --, proxmox-backup-manager, verify-job, show, core50-serzhan-home, --output-format, json]
+    argv: [qm, guest, exec, '2243', --, proxmox-backup-manager, verify-job, show, "core50-{{ core50_home_id }}", --output-format, json]
   register: core50_verify_config
   changed_when: false
 
@@ -124,11 +124,11 @@
       - >-
         (((core50_verify_config.stdout | from_json)['out-data']) | from_json).store == 'pbs-core'
       - >-
-        (((core50_verify_config.stdout | from_json)['out-data']) | from_json).ns == 'serzhan-home'
+        (((core50_verify_config.stdout | from_json)['out-data']) | from_json).ns == core50_home_id
       - >-
         (((core50_verify_config.stdout | from_json)['out-data']) | from_json)['max-depth'] | int == 0
       - >-
-        (((core50_verify_config.stdout | from_json)['out-data']) | from_json).schedule | default('', true) == ''
+        (((core50_verify_config.stdout | from_json)['out-data']) | from_json).schedule | default('', true) in ['', '09:00']
     fail_msg: CORE50_VERIFY_JOB_READBACK_FAILED
 
 - name: Capture PBS guest time before starting the exact manual Verify
@@ -163,7 +163,7 @@
       - proxmox-backup-manager
       - verify-job
       - run
-      - core50-serzhan-home
+      - core50-{{ core50_home_id }}
   register: core50_verify_run
   changed_when: true
   # The PBS CLI may truncate its long stdout through QGA. Do not require a
@@ -195,7 +195,7 @@
          | selectattr('worker_type', 'defined')
          | selectattr('worker_type', 'match', '^verif')
          | selectattr('worker_id', 'defined')
-         | selectattr('worker_id', 'search', '(^|:)core50-serzhan-home$')
+         | selectattr('worker_id', 'search',  '(^|:)core50-' ~ core50_home_id ~ '$')
          | selectattr('starttime', 'ge', core50_verify_started_not_before | int)
          | sort(attribute='starttime', reverse=true) | list }}
 
@@ -211,9 +211,9 @@
   ansible.builtin.debug:
     msg:
       - CORE50_VERIFY=SUCCESS
-      - CORE50_VERIFY_SCOPE=pbs-core/serzhan-home
+      - CORE50_VERIFY_SCOPE=pbs-core/{{ core50_home_id }}
       - "CORE50_VERIFY_SOURCE_SNAPSHOTS={{ core50_verify_snapshot_paths | length }}"
-      - CORE50_VERIFY_JOB=core50-serzhan-home
+      - CORE50_VERIFY_JOB=core50-{{ core50_home_id }}
       - CORE50_VERIFY_SCHEDULE=NONE
       - "CORE50_VERIFY_WORKER={{ core50_verify_task_matches[0].upid }}"
       - "CORE50_VERIFY_WORKER_STATUS={{ core50_verify_task_matches[0].status }}"

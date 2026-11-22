@@ -11,7 +11,7 @@
       - proxmox-backup-manager
       - user
       - list-tokens
-      - "serzhan-home-{{ core50_token_role.kind }}@pbs"
+      - "{{ core50_home_id }}-{{ core50_token_role.kind }}@pbs"
       - --output-format
       - json
   register: core50_identity_tokens_before
@@ -19,7 +19,7 @@
 
 - name: Check local protected credential handoff file without reading it
   ansible.builtin.command:
-    argv: [qm, guest, exec, '2243', --, test, -s, "/root/.digitalhouses/core50/serzhan-home-{{ core50_token_role.kind }}.json"]
+    argv: [qm, guest, exec, '2243', --, test, -s, "/root/.digitalhouses/core50/{{ core50_home_id }}-{{ core50_token_role.kind }}.json"]
   register: core50_identity_file_before
   changed_when: false
 
@@ -48,10 +48,10 @@
       - proxmox-backup-manager
       - user
       - generate-token
-      - "serzhan-home-{{ core50_token_role.kind }}@pbs"
+      - "{{ core50_home_id }}-{{ core50_token_role.kind }}@pbs"
       - core50
       - --comment
-      - "DigitalHouses HOME serzhan-home {{ core50_token_role.kind }} credential"
+      - "DigitalHouses HOME {{ core50_home_id }} {{ core50_token_role.kind }} credential"
   register: core50_generated_token
   changed_when: true
   no_log: true
@@ -72,7 +72,7 @@
       - >-
         umask 077;
         mkdir -p /root/.digitalhouses/core50;
-        cat > "/root/.digitalhouses/core50/serzhan-home-{{ core50_token_role.kind }}.json"
+        cat > "/root/.digitalhouses/core50/{{ core50_home_id }}-{{ core50_token_role.kind }}.json"
     stdin: "{{ (core50_generated_token.stdout | from_json)['out-data'] | regex_replace('^Result:\\s*', '') | trim }}"
     stdin_add_newline: false
   register: core50_secret_file_write
@@ -85,7 +85,7 @@
 
 - name: Check protected HOME credential file owner and mode without reading content
   ansible.builtin.command:
-    argv: [qm, guest, exec, '2243', --, stat, -c, '%U:%G:%a', "/root/.digitalhouses/core50/serzhan-home-{{ core50_token_role.kind }}.json"]
+    argv: [qm, guest, exec, '2243', --, stat, -c, '%U:%G:%a', "/root/.digitalhouses/core50/{{ core50_home_id }}-{{ core50_token_role.kind }}.json"]
   register: core50_secret_file_stat
   changed_when: false
 
@@ -113,19 +113,19 @@
       - proxmox-backup-manager
       - acl
       - update
-      - /datastore/pbs-core/serzhan-home
+      - /datastore/pbs-core/{{ core50_home_id }}
       - "{{ core50_token_role.role }}"
       - --auth-id
       - "{{ item }}"
   loop:
-    - "serzhan-home-{{ core50_token_role.kind }}@pbs"
-    - "serzhan-home-{{ core50_token_role.kind }}@pbs!core50"
+    - "{{ core50_home_id }}-{{ core50_token_role.kind }}@pbs"
+    - "{{ core50_home_id }}-{{ core50_token_role.kind }}@pbs!core50"
   register: core50_acl_update
   changed_when: true
   failed_when: (core50_acl_update.stdout | from_json).exitcode | int != 0
   when: >-
     (((core50_acl_before.stdout | from_json)['out-data'] | from_json)
-     | selectattr('path', 'equalto', '/datastore/pbs-core/serzhan-home')
+     | selectattr('path', 'equalto', '/datastore/pbs-core/' ~ core50_home_id)
      | selectattr('ugid', 'equalto', item)
      | selectattr('roleid', 'equalto', core50_token_role.role)
      | list | length) == 0
@@ -141,9 +141,9 @@
       - proxmox-backup-manager
       - user
       - permissions
-      - "serzhan-home-{{ core50_token_role.kind }}@pbs!core50"
+      - "{{ core50_home_id }}-{{ core50_token_role.kind }}@pbs!core50"
       - --path
-      - /datastore/pbs-core/serzhan-home
+      - /datastore/pbs-core/{{ core50_home_id }}
       - --output-format
       - json
   register: core50_effective_home_privileges
@@ -155,18 +155,18 @@
       - (core50_effective_home_privileges.stdout | from_json).exitcode | int == 0
       - >-
         ((((core50_effective_home_privileges.stdout | from_json)['out-data'] | from_json)
-          ['/datastore/pbs-core/serzhan-home']).get('Datastore.Backup', false) | bool)
+          ['/datastore/pbs-core/' ~ core50_home_id]).get('Datastore.Backup', false) | bool)
         == (core50_token_role.kind == 'push')
       - >-
         ((((core50_effective_home_privileges.stdout | from_json)['out-data'] | from_json)
-          ['/datastore/pbs-core/serzhan-home']).get('Datastore.Read', false) | bool)
+          ['/datastore/pbs-core/' ~ core50_home_id]).get('Datastore.Read', false) | bool)
         == (core50_token_role.kind == 'restore')
       - >-
         not ((((core50_effective_home_privileges.stdout | from_json)['out-data'] | from_json)
-          ['/datastore/pbs-core/serzhan-home']).get('Datastore.Prune', false) | bool)
+          ['/datastore/pbs-core/' ~ core50_home_id]).get('Datastore.Prune', false) | bool)
       - >-
         not ((((core50_effective_home_privileges.stdout | from_json)['out-data'] | from_json)
-          ['/datastore/pbs-core/serzhan-home']).get('Datastore.Modify', false) | bool)
+          ['/datastore/pbs-core/' ~ core50_home_id]).get('Datastore.Modify', false) | bool)
     fail_msg: CORE50_HOME_TOKEN_PRIVILEGE_SCOPE_MISMATCH
 
 - name: Verify HOME token has no rights on the legacy PBS datastore
@@ -180,7 +180,7 @@
       - proxmox-backup-manager
       - user
       - permissions
-      - "serzhan-home-{{ core50_token_role.kind }}@pbs!core50"
+      - "{{ core50_home_id }}-{{ core50_token_role.kind }}@pbs!core50"
       - --path
       - /datastore/pbs-serzhan
       - --output-format
