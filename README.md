@@ -32,4 +32,4 @@ Original source: `DigitalHouses/Ansible-3` is archived for history.
 
 ### CORE DH Stats (№60)
 
-CORE DH Stats работает на CT1245/IP `192.168.11.245`; туннель `dh-core` принимает `telemetry.digitalhouses.vip` через защищённый origin `http://192.168.11.245:8082`, локальный dashboard на `:80`. Подробнее: [docs/task60-dh-stats.md](docs/task60-dh-stats.md).
+CORE DH Stats работает на CT1245/IP `192.168.11.245`; туннель `dh-core` принимает `telemetry.digitalhouses.vip` через защищённый origin `http://192.168.11.245:8082`, локальный dashboard на `:80`. Действия №60: **Создать** и **Обновить** (без удаления статистики). Подробнее: [docs/task60-dh-stats.md](docs/task60-dh-stats.md).

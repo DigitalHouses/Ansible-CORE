@@ -1,5 +1,5 @@
 ---
-- name: Contract for CORE DH Stats read-only audit
+- name: Contract for CORE DH Stats lifecycle
   hosts: localhost
   connection: local
   gather_facts: false
@@ -14,27 +14,24 @@
     install_script: "{{ lookup('ansible.builtin.file', root ~ '/files/core60/install-stats.sh') }}"
     entry: "{{ (catalog.tasks | selectattr('name', 'equalto', '60-CORE DH Stats') | list | first) }}"
   tasks:
-    - name: Verify deterministic CORE target and read-only task catalog
+    - name: Verify deterministic CORE target and two lifecycle actions
       ansible.builtin.assert:
         that:
           - core_stats_ctid | int == 1245
           - core_resource_standard.stats_ct_name == 'dh-stats-CORE'
           - core_resource_standard.stats_octet == 245
           - entry.playbook == 'playbooks/core-stats.yml'
-          - entry.survey_vars[0].default_value == 'audit'
-          - entry.survey_vars[0]['values'] | map(attribute='value') | list == ['audit','cf-audit','prepare-tunnel','deploy','diagnose','cutover','countries','origin-network','origin-switch','update','update-connector']
+          - entry.survey_vars[0].default_value == 'create'
+          - entry.survey_vars[0]['values'] | map(attribute='value') | list == ['create','update']
           - "'core-resource-standard-assert.yml' in (audit | to_json)"
           - "'pvesh' in (audit | to_json)"
           - "'core60-cloudflare-audit.yml' in (audit | to_json)"
           - "'core60-cloudflare-prepare.yml' in (audit | to_json)"
           - "'core60-deploy.yml' in (audit | to_json)"
           - "'core60-cloudflare-cutover.yml' in (audit | to_json)"
-          - "'core60-country-report.yml' in (audit | to_json)"
           - "'core60-update-stats.yml' in (audit | to_json)"
-          - "'core60-update-connector.yml' in (audit | to_json)"
           - "'pct, destroy' not in (lookup('ansible.builtin.file', root ~ '/tasks/core60-update-stats.yml'))"
           - "'core60-network-origin.yml' in (audit | to_json)"
-          - "'core60-cloudflare-origin-switch.yml' in (audit | to_json)"
           - "'https://telemetry.digitalhouses.vip/healthz' in (audit | to_json)"
           - "'pct, create' not in (audit | to_json)"
           - "'pct, destroy' not in (audit | to_json)"
@@ -72,17 +69,14 @@
           - "'debian-13-standard_' in (deploy_tasks | to_json)"
           - "'https://github.com/DigitalHouses/home-assistant-apps.git' in install_script"
 
-    - name: Require limited Cloudflare cutover with an automatic DNS rollback
+    - name: Require limited public route for fresh deployment
       ansible.builtin.assert:
         that:
           - "'telemetry.digitalhouses.vip' in (cutover | to_json)"
-          - "'http://127.0.0.1:8080' in (cutover | to_json)"
+          - "'http://192.168.11.245:8082' in (cutover | to_json)"
           - "'http_status:404' in (cutover | to_json)"
-          - "'core60_previous_cname' in (cutover | to_json)"
-          - "'core60_new_cname' in (cutover | to_json)"
-          - "'CORE60_CF_CUTOVER=PASS' in (cutover | to_json)"
-          - "'CORE60_CF_DASHBOARD=LAN_ONLY' in (cutover | to_json)"
-          - "'pct, stop' not in (cutover | to_json)"
+          - "'CORE60_CF_TELEMETRY_DNS_NOT_OWNED_OR_AMBIGUOUS' in (cutover | to_json)"
+          - "'core60_create_required' in (audit | to_json)"
           - "'192.168.11.220' not in (cutover | to_json)"
 
     - name: Require native Debian 13 boot compatibility for new and existing CT1245

@@ -47,17 +47,3 @@
       - CORE60_PUBLIC_DNS=UNCHANGED
       - CORE60_LOCAL_DASHBOARD=UNCHANGED
 
-- name: Verify public telemetry after origin reconciliation
-  ansible.builtin.uri:
-    url: https://telemetry.digitalhouses.vip/healthz
-    method: GET
-    return_content: true
-    timeout: 8
-    use_proxy: false
-  register: core60_post_origin_public
-  changed_when: false
-  failed_when: false
-
-- name: Report public telemetry health after reconciliation
-  ansible.builtin.debug:
-    msg: "CORE60_PUBLIC_HEALTH={{ core60_post_origin_public.status | default('unreachable') }}"

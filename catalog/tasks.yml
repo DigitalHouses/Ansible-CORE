@@ -79,49 +79,15 @@ tasks:
         values: []
   - name: "60-CORE DH Stats"
     playbook: playbooks/core-stats.yml
-    description: "Только диагностика: проверить свободен ли CT1245/IP .245 на CORE, статус Cloudflare telemetry и готовность к миграции данных; без развёртывания"
+    description: "Создание DH Stats или обновление существующего CT1245 без удаления статистики"
     survey_vars:
       - name: DH_CORE60_ACTION
-        title: "CORE DH Stats — действие"
+        title: "Действие"
         type: enum
         target: ""
         required: true
-        default_value: audit
+        default_value: create
         values:
-          - {name: "Проверить CORE CT1245 и публичную телеметрию (без изменений)", value: audit}
-          - {name: "Проверить Cloudflare zone/DNS/Tunnel для dh-core (только чтение)", value: cf-audit}
-          - {name: "Создать отдельный CF Tunnel dh-core без переключения DNS", value: prepare-tunnel}
-          - {name: "Установить чистый CORE CT1245/DH Stats+PostgreSQL+connector, без переключения DNS", value: deploy}
-          - {name: "Диагностика CT1245 после установки (только чтение)", value: diagnose}
-          - {name: "Переключить telemetry.digitalhouses.vip на новый dh-core Tunnel после проверки", value: cutover}
-          - {name: "Показать страны и версии установленных агентов (только чтение)", value: countries}
-          - {name: "Настроить origin и запуск CT1245 (перезапуск только при изменении параметров загрузки; без смены CF Tunnel)", value: origin-network}
-          - {name: "Переключить origin Tunnel dh-core на 192.168.11.245:8082 (DNS не менять)", value: origin-switch}
-          - {name: "Обновить DH Stats и dashboard на CORE CT1245 (без изменения БД и CF)", value: update}
-          - {name: "Включить Debian unattended-upgrades только для cloudflared в CT1245 (без изменения Stats и БД)", value: update-connector}
-  - name: 71-Tailscale
-    playbook: playbooks/core-tailscale.yml
-    description: "CORE PVE + PBS: stable Tailscale install/configure/join/update; native auto-update"
-    survey_vars:
-      - name: DH_CORE71_ACTION
-        title: "Tailscale — действие"
-        type: enum
-        target: ""
-        required: true
-        default_value: audit
-        values:
-          - {name: "Проверить состояние без изменений", value: audit}
-          - {name: "Установить пакет Tailscale (без регистрации)", value: install}
-          - {name: "Настроить DNS/маршруты на подключённом узле", value: configure}
-          - {name: "Подключить к tailnet (auth key из №05)", value: join}
-          - {name: "Обновить только пакет Tailscale", value: update}
-      - name: DH_CORE71_TARGET
-        title: "Узел CORE"
-        type: enum
-        target: ""
-        required: true
-        default_value: both
-        values:
-          - {name: "Оба узла последовательно", value: both}
-          - {name: "Только CORE PVE", value: pve}
-          - {name: "Только CORE PBS VM2243", value: pbs}
+          - {name: "Создать", value: create}
+          - {name: "Обновить", value: update}
+

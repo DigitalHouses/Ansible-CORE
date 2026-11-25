@@ -1,72 +1,51 @@
 ---
-# Safely switch only telemetry.digitalhouses.vip to the dedicated CORE Tunnel.
-# No dashboard exposure, no HOME actions, and old Tunnel remains intact.
-- name: Select exactly one Cloudflare dh-core tunnel and single existing DNS record
+# Create or reuse only the telemetry DNS record for the dedicated dh-core tunnel.
+- name: Require the dedicated tunnel and an available or already owned DNS record
   ansible.builtin.assert:
     that:
       - core60_cf_tunnels.json.result | length == 1
       - core60_cf_tunnels.json.result[0].name == 'dh-core'
-      - core60_cf_dns.json.result | length == 1
-      - core60_cf_dns.json.result[0].type == 'CNAME'
-      - core60_cf_dns.json.result[0].name == 'telemetry.digitalhouses.vip'
-      - core60_cf_dns.json.result[0].content is match('^[0-9a-f-]{36}[.]cfargotunnel[.]com$')
+      - core60_cf_dns.json.result | length <= 1
+      - >-
+        core60_cf_dns.json.result | length == 0 or
+        (core60_cf_dns.json.result[0].type == 'CNAME' and
+         core60_cf_dns.json.result[0].content == core60_cf_tunnels.json.result[0].id ~ '.cfargotunnel.com')
     fail_msg: CORE60_CF_TELEMETRY_DNS_NOT_OWNED_OR_AMBIGUOUS
 
-- name: Save exact tunnel ID and old DNS target for verified rollback
+- name: Set the canonical tunnel target
   ansible.builtin.set_fact:
     core60_tunnel_id: "{{ core60_cf_tunnels.json.result[0].id }}"
-    core60_dns_record_id: "{{ core60_cf_dns.json.result[0].id }}"
-    core60_previous_cname: "{{ core60_cf_dns.json.result[0].content }}"
     core60_new_cname: "{{ core60_cf_tunnels.json.result[0].id }}.cfargotunnel.com"
 
-- name: Require private LAN dashboard API alive before changing Cloudflare
-  ansible.builtin.uri:
-    url: http://192.168.11.245/healthz
-    method: GET
-    return_content: true
-    use_proxy: false
-    timeout: 8
-  register: core60_local_cutover_health
-  changed_when: false
-
-- name: Require local dashboard JSON and current active CORE Stats guest
-  ansible.builtin.assert:
-    that:
-      - core60_local_cutover_health.json.status | default('') == 'ok'
-    fail_msg: CORE60_STATS_NOT_READY_FOR_CUTOVER
-
-- name: Read new CORE Tunnel connection status from Cloudflare
+- name: Verify the connector is healthy before publishing
   ansible.builtin.uri:
     url: "https://api.cloudflare.com/client/v4/accounts/{{ core60_cf_account_id }}/cfd_tunnel/{{ core60_tunnel_id }}"
     headers:
       Authorization: "Bearer {{ DH_CLOUDFLARE_API_TOKEN }}"
     method: GET
-    return_content: true
     use_proxy: false
+    return_content: true
   register: core60_cf_tunnel_state
+  until: core60_cf_tunnel_state.json.result.status | default('') == 'healthy'
+  retries: 6
+  delay: 3
   no_log: true
+  changed_when: false
 
-- name: Require a live new CORE connector before redirecting Internet traffic
-  ansible.builtin.assert:
-    that:
-      - core60_cf_tunnel_state.json.success | default(false) | bool
-      - core60_cf_tunnel_state.json.result.id == core60_tunnel_id
-      - core60_cf_tunnel_state.json.result.status == 'healthy'
-    fail_msg: CORE60_DH_CORE_CONNECTOR_NOT_HEALTHY
-
-- name: Read existing dh-core remote ingress configuration before replacement
+- name: Read current tunnel ingress
   ansible.builtin.uri:
     url: "https://api.cloudflare.com/client/v4/accounts/{{ core60_cf_account_id }}/cfd_tunnel/{{ core60_tunnel_id }}/configurations"
     headers:
       Authorization: "Bearer {{ DH_CLOUDFLARE_API_TOKEN }}"
     method: GET
-    return_content: true
     use_proxy: false
+    return_content: true
     status_code: [200, 404]
   register: core60_cf_current_ingress
   no_log: true
+  changed_when: false
 
-- name: Refuse overwriting any unrelated route in dedicated dh-core Tunnel
+- name: Refuse overwriting unrelated ingress
   ansible.builtin.assert:
     that:
       - >-
@@ -75,7 +54,7 @@
          | rejectattr('hostname', 'equalto', 'telemetry.digitalhouses.vip') | list | length) == 0
     fail_msg: CORE60_DH_CORE_UNRELATED_INGRESS_PRESENT
 
-- name: Configure new Tunnel for ingestion only, with mandatory 404 fallback
+- name: Configure protected LAN origin and public fallback
   ansible.builtin.uri:
     url: "https://api.cloudflare.com/client/v4/accounts/{{ core60_cf_account_id }}/cfd_tunnel/{{ core60_tunnel_id }}/configurations"
     headers:
@@ -93,96 +72,43 @@
     use_proxy: false
   register: core60_cf_ingress_update
   no_log: true
+  failed_when: not (core60_cf_ingress_update.json.success | default(false) | bool)
 
-- name: Require Cloudflare has applied the public ingestion-only rule
-  ansible.builtin.assert:
-    that:
-      - core60_cf_ingress_update.json.success | default(false) | bool
-    fail_msg: CORE60_CF_INGRESS_UPDATE_FAILED
+- name: Create the missing telemetry CNAME
+  ansible.builtin.uri:
+    url: "https://api.cloudflare.com/client/v4/zones/{{ core60_cf_zone_id }}/dns_records"
+    headers:
+      Authorization: "Bearer {{ DH_CLOUDFLARE_API_TOKEN }}"
+    method: POST
+    body_format: json
+    body:
+      type: CNAME
+      name: telemetry.digitalhouses.vip
+      content: "{{ core60_new_cname }}"
+      proxied: true
+      ttl: 1
+    status_code: [200, 201]
+    use_proxy: false
+  register: core60_cf_dns_created
+  failed_when: not (core60_cf_dns_created.json.success | default(false) | bool)
+  when: core60_cf_dns.json.result | length == 0
+  no_log: true
 
-- name: Switch only the existing telemetry CNAME, then verify public service
-  block:
-    - name: Patch existing Cloudflare DNS record without creating duplicate routes
-      ansible.builtin.uri:
-        url: "https://api.cloudflare.com/client/v4/zones/{{ core60_cf_zone_id }}/dns_records/{{ core60_dns_record_id }}"
-        headers:
-          Authorization: "Bearer {{ DH_CLOUDFLARE_API_TOKEN }}"
-        method: PATCH
-        body_format: json
-        body:
-          type: CNAME
-          name: telemetry.digitalhouses.vip
-          content: "{{ core60_new_cname }}"
-          proxied: true
-          ttl: 1
-        status_code: 200
-        use_proxy: false
-      register: core60_cf_dns_updated
-      no_log: true
-      when: core60_previous_cname != core60_new_cname
-
-    - name: Read Cloudflare telemetry DNS record after DNS cutover
-      ansible.builtin.uri:
-        url: "https://api.cloudflare.com/client/v4/zones/{{ core60_cf_zone_id }}/dns_records/{{ core60_dns_record_id }}"
-        headers:
-          Authorization: "Bearer {{ DH_CLOUDFLARE_API_TOKEN }}"
-        method: GET
-        return_content: true
-        use_proxy: false
-      register: core60_cf_dns_after
-      no_log: true
-
-    - name: Require exact dh-core target and proxied DNS status after cutover
-      ansible.builtin.assert:
-        that:
-          - core60_cf_dns_after.json.success | default(false) | bool
-          - core60_cf_dns_after.json.result.content == core60_new_cname
-          - core60_cf_dns_after.json.result.proxied | bool
-        fail_msg: CORE60_CF_TELEMETRY_DNS_READBACK_MISMATCH
-
-    - name: Probe public telemetry health through new Cloudflare endpoint
-      ansible.builtin.uri:
-        url: https://telemetry.digitalhouses.vip/healthz
-        method: GET
-        timeout: 8
-        use_proxy: false
-        return_content: true
-      register: core60_public_after
-      changed_when: false
-      retries: 6
-      delay: 3
-      until: (core60_public_after.status | default(0)) == 200 and (core60_public_after.json.status | default('')) == 'ok'
-
-  rescue:
-    - name: Restore only the original Cloudflare telemetry DNS target on failure
-      ansible.builtin.uri:
-        url: "https://api.cloudflare.com/client/v4/zones/{{ core60_cf_zone_id }}/dns_records/{{ core60_dns_record_id }}"
-        headers:
-          Authorization: "Bearer {{ DH_CLOUDFLARE_API_TOKEN }}"
-        method: PATCH
-        body_format: json
-        body:
-          type: CNAME
-          name: telemetry.digitalhouses.vip
-          content: "{{ core60_previous_cname }}"
-          proxied: true
-          ttl: 1
-        use_proxy: false
-      no_log: true
-      when: core60_previous_cname != core60_new_cname
-
-    - name: Fail cutover without modifying the old HOME tunnel
-      ansible.builtin.fail:
-        msg: CORE60_CF_CUTOVER_FAILED_PREVIOUS_DNS_RESTORED
-
-- name: Report confirmed Cloudflare-only public hostname switch
-  ansible.builtin.debug:
-    msg:
-      - CORE60_CF_CUTOVER=PASS
-      - CORE60_CF_TUNNEL=dh-core
-      - "CORE60_CF_NEW_ORIGIN={{ core60_new_cname }}"
-      - "CORE60_CF_OLD_ORIGIN={{ core60_previous_cname }}"
-      - CORE60_CF_INGEST=http://127.0.0.1:8080
-      - CORE60_CF_DASHBOARD=LAN_ONLY
-      - CORE60_HOME=NOT_TOUCHED
-      - CORE60_PUBLIC_HEALTH=HTTP_200
+- name: Enable proxy on existing owned CNAME if necessary
+  ansible.builtin.uri:
+    url: "https://api.cloudflare.com/client/v4/zones/{{ core60_cf_zone_id }}/dns_records/{{ core60_cf_dns.json.result[0].id }}"
+    headers:
+      Authorization: "Bearer {{ DH_CLOUDFLARE_API_TOKEN }}"
+    method: PATCH
+    body_format: json
+    body:
+      proxied: true
+      ttl: 1
+    status_code: 200
+    use_proxy: false
+  register: core60_cf_dns_updated
+  failed_when: not (core60_cf_dns_updated.json.success | default(false) | bool)
+  when:
+    - core60_cf_dns.json.result | length == 1
+    - not (core60_cf_dns.json.result[0].proxied | bool)
+  no_log: true
