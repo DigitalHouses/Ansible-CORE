@@ -57,6 +57,12 @@
         that:
           - "'core40-pbs-capacity.yml' in cutover_src"
           - "'core40-pbs-capacity.yml' in lookup('ansible.builtin.file', root ~ '/tasks/core40-pbs-datastore.yml')"
-          - "'--propagate, ''false''' in lookup('ansible.builtin.file', root ~ '/tasks/core40-pbs-capacity.yml')"
+          - >-
+            ((lookup('ansible.builtin.file', root ~ '/tasks/core40-pbs-capacity.yml') | from_yaml
+              | selectattr('name','equalto','Grant datastore metrics access without inheritance') | first)
+              ['ansible.builtin.command'].argv)[-2:] == ['--propagate', 'false']
           - "'pvesm, status, --storage, pbs-core' in lookup('ansible.builtin.file', root ~ '/tasks/core40-pbs-capacity.yml')"
-          - "'--propagate, ''false''' in lookup('ansible.builtin.file', root ~ '/tasks/core-media-pbs-import.yml')"
+          - >-
+            ((lookup('ansible.builtin.file', root ~ '/tasks/core-media-pbs-import.yml') | from_yaml
+              | selectattr('name','equalto','Restore only non-inheritable datastore audit for CORE PVE capacity') | first)
+              ['ansible.builtin.command'].argv)[-2:] == ['--propagate', 'false']
