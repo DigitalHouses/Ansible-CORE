@@ -42,7 +42,8 @@ tasks:
           - {name: "Проверить медиасервер", value: audit}
           - {name: "Исправить сетевые настройки и портал", value: repair-portal}
           - {name: "Переименовать VM медиасервера", value: sync-name}
-  - name: "31-CORE Media/PBS — Create/Recreate + Import"
+  - name: "31-CORE Media Server + PBS"
+    previous_name: "31-CORE Media/PBS — Create/Recreate + Import"
     playbook: playbooks/core-media-fresh.yml
     description: "Create пересоздаёт системный диск с Import. Erase пока заблокирован до реализации чистой PBS/Tailscale идентичности. Update обновляет существующие пакеты и конфигурацию, не затрагивает диски."
     survey_vars:
