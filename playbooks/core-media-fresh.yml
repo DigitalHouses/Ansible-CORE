@@ -58,6 +58,7 @@
         media_site: "{{ media_site }}"
         media_spec: "{{ media_spec }}"
         media_site_blob: CORE_LOCAL_MANIFEST
+        media_expected_node: "{{ pve.node }}"
         media_disk_action: "{{ media_disk_action if core31_action == 'create' else 'ignored' }}"
         media_vm_action: create
         media_root_password: "{{ media_root_password }}"
@@ -450,6 +451,13 @@
   vars_files:
     - ../vars/core-resource-standard.yml
   tasks:
+    - name: Confirm the actual CORE PVE identity
+      ansible.builtin.command:
+        argv: [hostname, -s]
+      register: core31_update_pve
+      changed_when: false
+      failed_when: core31_update_pve.stdout | trim != media_expected_node
+
     - name: Read existing CORE media VM configuration
       ansible.builtin.command:
         argv: [qm, config, '2243']
@@ -488,7 +496,7 @@
           - |
             export DEBIAN_FRONTEND=noninteractive
             apt-get update -qq
-            apt-get install -y --only-upgrade plexmediaserver jellyfin qbittorrent-nox samba nginx proxmox-backup-server tailscale webmin docker.io
+            apt-get -o Dpkg::Options::=--force-confold install -y --only-upgrade plexmediaserver jellyfin qbittorrent-nox samba nginx proxmox-backup-server tailscale webmin docker.io
       register: core31_update_packages
       changed_when: >-
         (core31_update_packages.stdout | from_json)['out-data'] | default('') is not search('0 upgraded, 0 newly installed')
