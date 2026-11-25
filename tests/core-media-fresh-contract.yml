@@ -93,8 +93,8 @@
           - "'mediaserver-CORE' in [core_media_spec.name, core_media_spec.os_hostname]"
           - "'mediaserver-dh-core' in [core_media_spec.name, core_media_spec.os_hostname]"
           - "'mediaserver-serzhan' not in [core_media_spec.name, core_media_spec.os_hostname]"
-        vars:
-          identity_task: "{{ clean[-1].tasks | selectattr('name', 'equalto', 'Verify guest agent and exact running guest identity') | first }}"
+      vars:
+        identity_task: "{{ clean[-1].tasks | selectattr('name', 'equalto', 'Verify guest agent and exact running guest identity') | first }}"
 
     - name: Require bounded Tailscale machine identity recovery after fresh guest boot
       ansible.builtin.assert:
