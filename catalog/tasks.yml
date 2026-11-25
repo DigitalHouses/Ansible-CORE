@@ -13,6 +13,8 @@ tasks:
       - {name: DH_INPUT_CLOUDFLARE_ENROLL_CLIENT_ID, title: "Cloudflare One — enrollment Service Token Client ID (пусто — сохранить прежний)", type: secret, target: env, required: false, values: []}
       - {name: DH_INPUT_CLOUDFLARE_ENROLL_CLIENT_SECRET, title: "Cloudflare One — enrollment Service Token Client Secret (пусто — сохранить прежний)", type: secret, target: env, required: false, values: []}
       - {name: DH_INPUT_TAILSCALE_AUTH_KEY, title: "Tailscale — auth key для CORE PVE/PBS (пусто — сохранить прежний)", type: secret, target: env, required: false, values: []}
+      - {name: DH_INPUT_CORE_MQTT_USERNAME, title: "CORE MQTT — пользователь (пусто — сохранить прежнее)", type: secret, target: env, required: false, values: []}
+      - {name: DH_INPUT_CORE_MQTT_PASSWORD, title: "CORE MQTT — пароль (пусто — сохранить прежнее)", type: secret, target: env, required: false, values: []}
   - name: "10-CORE PVE"
     playbook: playbooks/core-pve.yml
     description: "Настройка установленного CORE PVE: Tailscale и PVE Agent с native auto-update; Update обновляет управляемые компоненты без переустановки PVE."
