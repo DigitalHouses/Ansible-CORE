@@ -86,6 +86,16 @@
             (pbs_identity | selectattr('name', 'equalto', 'Verify preserved PBS identity and credentials archive checksum') | first).args.chdir
             == '/serzhan-pool/digitalhouses/core31-recreate'
 
+    - name: Accept both observed CORE guest hostname and fresh-install hostname without renaming
+      ansible.builtin.assert:
+        that:
+          - "'not in [media_spec.name, media_spec.os_hostname]' in (identity_task.failed_when)"
+          - "'mediaserver-CORE' in [core_media_spec.name, core_media_spec.os_hostname]"
+          - "'mediaserver-dh-core' in [core_media_spec.name, core_media_spec.os_hostname]"
+          - "'mediaserver-serzhan' not in [core_media_spec.name, core_media_spec.os_hostname]"
+      vars:
+        identity_task: "{{ clean[-1].tasks | selectattr('name', 'equalto', 'Verify guest agent and exact running guest identity') | first }}"
+
     - name: Require bounded Tailscale machine identity recovery after fresh guest boot
       ansible.builtin.assert:
         that:
