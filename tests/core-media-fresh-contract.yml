@@ -35,8 +35,10 @@
           - core_media_spec.pci.sata_controller == '0000:2b:00.0'
           - core_media_spec.pci.gpu == '0000:2f:00.0'
           - item31.playbook == 'playbooks/core-media-fresh.yml'
-          - item31.survey_vars[0].default_value == 'audit'
-          - item31.survey_vars[0]['values'] | map(attribute='value') | list == ['audit','apply','resume']
+          - item31.survey_vars[0].default_value == 'update'
+          - item31.survey_vars[0]['values'] | map(attribute='value') | list == ['create','update']
+          - item31.survey_vars[1].default_value == 'import'
+          - item31.survey_vars[1]['values'] | map(attribute='value') | list == ['import','erase']
 
     - name: Require fresh Debian cloud image and native VM creation, never OS archive restore
       ansible.builtin.assert:
@@ -72,11 +74,14 @@
           - "'/pbs-core' in recreate_gate"
           - "'MEDIA30_E2E_PBS_DATASTORE=pbs-core' in recreate_gate"
 
-    - name: Require resumed install to avoid recreating the already fresh VM
+    - name: Require Update to avoid disk lifecycle
       ansible.builtin.assert:
         that:
-          - "'keep' in (clean | to_json)"
-          - "'media_vm_action' in (clean | to_json)"
+          - clean[-1].hosts == 'media_update_pve'
+          - "'media-vm-apply.yml' not in (clean[-1] | to_json)"
+          - "'media-zfs-apply.yml' not in (clean[-1] | to_json)"
+          - "'core-media-pbs-import.yml' not in (clean[-1] | to_json)"
+          - "'CORE31_ERASE_NOT_IMPLEMENTED_NO_CHANGES_MADE' in (clean | to_json)"
           - >-
             (pbs_identity | selectattr('name', 'equalto', 'Verify preserved PBS identity and credentials archive checksum') | first).args.chdir
             == '/serzhan-pool/digitalhouses/core31-recreate'

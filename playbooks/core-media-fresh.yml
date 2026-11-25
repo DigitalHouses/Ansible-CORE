@@ -10,19 +10,18 @@
     - ../vars/core-resource-standard.yml
     - ../vars/core-media-deploy.yml
   vars:
-    core31_action: "{{ DH_CORE31_ACTION | default('audit', true) }}"
-    media_mode: "{{ 'apply' if core31_action == 'resume' else core31_action }}"
+    core31_action: "{{ DH_CORE31_ACTION | default('update', true) }}"
+    media_mode: "{{ 'apply' if core31_action == 'create' else 'update' }}"
     media_site: "{{ core_media_site }}"
     media_spec: "{{ core_media_spec | combine({'legacy_names': [core_resource_standard.media_legacy_vm_name, core_resource_standard.media_older_vm_name]}) }}"
-    media_disk_action: import
+    media_disk_action: "{{ DH_CORE31_DISK_ACTION | default('import', true) }}"
     media_root_password: "{{ DH_CORE_MEDIA_ROOT_PASSWORD | default(lookup('ansible.builtin.env', 'DH_CORE_MEDIA_ROOT_PASSWORD'), true) }}"
   tasks:
     - name: Require only clean install or audit, pinned CORE identity and non-destructive ZFS import
       ansible.builtin.assert:
         that:
-          - core31_action in ['audit','apply','resume']
-          - media_mode in ['audit','apply']
-          - media_disk_action == 'import'
+          - core31_action in ['create', 'update']
+          - core31_action == 'update' or media_disk_action in ['import', 'erase']
           - media_site.id == 'dh-core'
           - pve.ipv4 == '192.168.11.240'
           - media_spec.vmid | int == 2243
@@ -33,13 +32,19 @@
           - media_spec.storage.import_pool_guid == '18293847766285774524'
         fail_msg: CORE31_FRESH_PROFILE_OR_IMPORT_IDENTITY_INVALID
 
+    - name: Refuse unimplemented clean erase before contacting PVE
+      ansible.builtin.assert:
+        that: media_disk_action == 'import'
+        fail_msg: CORE31_ERASE_NOT_IMPLEMENTED_NO_CHANGES_MADE
+      when: core31_action == 'create'
+
     - name: Require existing CORE bootstrap identity and guest ID convention
       ansible.builtin.include_tasks: ../tasks/core-resource-standard-assert.yml
 
     - name: Register only existing trusted CORE PVE
       ansible.builtin.add_host:
         name: media_pve
-        groups: media80_pve
+        groups: "{{ 'media80_pve' if core31_action == 'create' else 'media_update_pve' }}"
         ansible_host: "{{ pve.ipv4 }}"
         ansible_user: root
         ansible_connection: ssh
@@ -53,7 +58,7 @@
         media_site: "{{ media_site }}"
         media_spec: "{{ media_spec }}"
         media_site_blob: CORE_LOCAL_MANIFEST
-        media_disk_action: import
+        media_disk_action: "{{ media_disk_action if core31_action == 'create' else 'ignored' }}"
         media_vm_action: create
         media_root_password: "{{ media_root_password }}"
         media30_vm_cpu_percent: 150
@@ -84,18 +89,9 @@
         follow: false
       register: media_vm_conf
 
-    - name: Select create, recreate, or resume the current clean Debian VM
+    - name: Select create or recreate for clean installation
       ansible.builtin.set_fact:
-        media_vm_action: >-
-          {{ 'keep' if core31_action == 'resume'
-             else ('recreate' if media_vm_conf.stat.exists else 'create') }}
-
-    - name: Require an existing VM2243 before non-destructive resume
-      ansible.builtin.assert:
-        that:
-          - media_vm_conf.stat.exists
-        fail_msg: CORE31_RESUME_REQUIRES_EXISTING_VM2243
-      when: core31_action == 'resume'
+        media_vm_action: "{{ 'recreate' if media_vm_conf.stat.exists else 'create' }}"
 
     - name: Read existing target VM configuration without changes
       ansible.builtin.command:
@@ -446,3 +442,84 @@
   tasks:
     - name: Run read-only PVE acceptance after guest setup
       ansible.builtin.include_tasks: ../tasks/media-accept-pve.yml
+
+- name: "31 | Update existing CORE Media/PBS without disk lifecycle"
+  hosts: media_update_pve
+  gather_facts: false
+  any_errors_fatal: true
+  vars_files:
+    - ../vars/core-resource-standard.yml
+  tasks:
+    - name: Read existing CORE media VM configuration
+      ansible.builtin.command:
+        argv: [qm, config, '2243']
+      register: core31_update_vm
+      changed_when: false
+
+    - name: Require the existing managed media VM
+      ansible.builtin.assert:
+        that:
+          - "'description: DigitalHouses managed media guest v2' in core31_update_vm.stdout_lines"
+          - "'name: mediaserver-CORE' in core31_update_vm.stdout_lines"
+          - core31_update_vm.stdout is search('ip=192[.]168[.]11[.]243/24')
+        fail_msg: CORE31_UPDATE_REQUIRES_MANAGED_EXISTING_VM
+
+    - name: Verify guest agent and exact running guest identity
+      ansible.builtin.command:
+        argv: [qm, guest, exec, '2243', --, hostname, -s]
+      register: core31_update_identity
+      changed_when: false
+      failed_when: >-
+        (core31_update_identity.stdout | from_json).exitcode | default(1) | int != 0 or
+        ((core31_update_identity.stdout | from_json)['out-data'] | trim) != 'mediaserver-dh-core'
+
+    - name: Update only existing managed APT packages inside Media/PBS
+      ansible.builtin.command:
+        argv:
+          - qm
+          - guest
+          - exec
+          - '2243'
+          - --timeout
+          - '900'
+          - --
+          - sh
+          - -ec
+          - |
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update -qq
+            apt-get install -y --only-upgrade plexmediaserver jellyfin qbittorrent-nox samba nginx proxmox-backup-server tailscale webmin docker.io
+      register: core31_update_packages
+      changed_when: >-
+        (core31_update_packages.stdout | from_json)['out-data'] | default('') is not search('0 upgraded, 0 newly installed')
+      failed_when: >-
+        core31_update_packages.rc != 0 or
+        (core31_update_packages.stdout | from_json).exitcode | default(1) | int != 0
+
+    - name: Enable native Tailscale automatic updates without changing identity
+      ansible.builtin.command:
+        argv: [qm, guest, exec, '2243', --, tailscale, set, --accept-dns=false, --accept-routes=false, --auto-update=true]
+      register: core31_update_ts
+      changed_when: false
+      failed_when: (core31_update_ts.stdout | from_json).exitcode | default(1) | int != 0
+
+    - name: Reconcile CORE PVE access to PBS aggregate capacity
+      ansible.builtin.include_tasks: ../tasks/core40-pbs-capacity.yml
+
+    - name: Verify installed media and PBS services
+      ansible.builtin.command:
+        argv: [qm, guest, exec, '2243', --, systemctl, is-active, plexmediaserver, jellyfin, qbittorrent-nox, smbd, nginx, proxmox-backup, proxmox-backup-proxy, tailscaled, webmin, radarr, sonarr, prowlarr, filestash, dh-rclone-gui]
+      register: core31_update_services
+      changed_when: false
+      failed_when: (core31_update_services.stdout | from_json).exitcode | default(1) | int != 0
+
+    - name: Verify local Media portal from PVE
+      ansible.builtin.uri:
+        url: http://192.168.11.243/
+        status_code: 200
+        use_proxy: false
+      changed_when: false
+
+    - name: Report update scope
+      ansible.builtin.debug:
+        msg: CORE31_UPDATE=PASS_APT_AND_PBS_ACL_DISK_LIFECYCLE_NOT_RUN

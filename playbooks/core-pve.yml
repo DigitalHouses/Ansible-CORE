@@ -1,0 +1,128 @@
+---
+- name: "10 | Resolve CORE PVE lifecycle"
+  hosts: runner
+  connection: local
+  gather_facts: false
+  any_errors_fatal: true
+  vars_files:
+    - /etc/digitalhouses/pve.yml
+    - ../vars/core-resource-standard.yml
+  vars:
+    core10_action: "{{ DH_CORE10_ACTION | default('update', true) }}"
+  tasks:
+    - name: Require CORE and a supported action
+      ansible.builtin.assert:
+        that:
+          - core10_action in ['create', 'update']
+          - pve.ipv4 == '192.168.11.240'
+    - name: Verify CORE identity
+      ansible.builtin.include_tasks: ../tasks/core-resource-standard-assert.yml
+    - name: Register pinned CORE PVE
+      ansible.builtin.add_host:
+        name: core10_pve
+        groups: core10_pve_hosts
+        ansible_host: "{{ pve.ipv4 }}"
+        ansible_user: root
+        ansible_connection: ssh
+        ansible_python_interpreter: /usr/bin/python3
+        ansible_ssh_private_key_file: /var/lib/semaphore/.ssh/id_ed25519
+        ansible_ssh_common_args: >-
+          -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes
+          -o UserKnownHostsFile=/var/lib/semaphore/.ssh/known_hosts
+        core10_action: "{{ core10_action }}"
+        core10_expected_node: "{{ pve.node }}"
+        core71_auth_key: "{{ DH_TAILSCALE_AUTH_KEY | default('') }}"
+        core10_mqtt_username: "{{ DH_CORE_MQTT_USERNAME | default('') }}"
+        core10_mqtt_password: "{{ DH_CORE_MQTT_PASSWORD | default('') }}"
+      changed_when: false
+      no_log: true
+
+- name: "10 | Configure CORE PVE and agent"
+  hosts: core10_pve_hosts
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Check actual PVE hostname
+      ansible.builtin.command:
+        argv: [hostname, -s]
+      register: core10_hostname
+      changed_when: false
+      failed_when: core10_hostname.stdout | trim != core10_expected_node
+
+    - name: Detect existing PVE Agent
+      ansible.builtin.stat:
+        path: /usr/local/bin/dh-pve-agent
+      register: core10_agent
+
+    - name: Install Tailscale on Create or upgrade on Update
+      ansible.builtin.include_tasks: ../tasks/core71-tailscale-pve.yml
+      vars:
+        core71_action: "{{ 'install' if core10_action == 'create' else 'update' }}"
+
+    - name: Require a Tailscale auth key only for an unconnected Create
+      ansible.builtin.assert:
+        that: core71_auth_key | length > 0
+        fail_msg: CORE10_TAILSCALE_AUTH_KEY_REQUIRED_IN_TASK05
+      when:
+        - core10_action == 'create'
+        - core71_pve_status_after.rc | default(1) != 0 or (core71_pve_status_after.stdout | default('{}', true) | from_json).BackendState | default('') != 'Running'
+      no_log: true
+
+    - name: Join or reconcile existing native Tailscale connection
+      ansible.builtin.include_tasks: ../tasks/core71-tailscale-pve.yml
+      vars:
+        core71_action: "{{ 'join' if core10_action == 'create' else 'configure' }}"
+
+    - name: Install official PVE Agent on first deployment
+      when: not core10_agent.stat.exists
+      block:
+        - name: Require Create for missing agent
+          ansible.builtin.assert:
+            that: core10_action == 'create'
+            fail_msg: CORE10_AGENT_NOT_INSTALLED_RUN_CREATE
+        - name: Download verified published release installer
+          ansible.builtin.get_url:
+            url: https://raw.githubusercontent.com/DigitalHouses/home-assistant-apps/digitalhouses_pve_agent-v0.5.105/digitalhouses_pve_agent/install.sh
+            dest: /run/dh-core-pve-agent-install.sh
+            mode: '0700'
+        - name: Install agent with CORE MQTT parameters and protected stdin
+          ansible.builtin.command:
+            argv: >-
+              {{ ['bash', '/run/dh-core-pve-agent-install.sh', '--non-interactive',
+                  '--set', 'mqtt_host=192.168.11.242', '--set', 'mqtt_port=1883']
+                 + (['--set', 'mqtt_username=' ~ core10_mqtt_username] if core10_mqtt_username | length else [])
+                 + (['--mqtt-password-stdin'] if core10_mqtt_password | length else []) }}
+            stdin: "{{ core10_mqtt_password }}"
+          environment:
+            DIGITALHOUSES_SOURCE_REF: digitalhouses_pve_agent-v0.5.105
+          no_log: true
+
+    - name: Update existing PVE Agent through its native CLI
+      ansible.builtin.command:
+        argv: [dh-pve-agent, update]
+      when: core10_action == 'update' and core10_agent.stat.exists
+      register: core10_agent_update
+      changed_when: "'UPDATED' in core10_agent_update.stdout"
+
+    - name: Enable native PVE Agent auto-update
+      ansible.builtin.command:
+        argv: [dh-pve-agent, auto-update, 'on']
+      register: core10_agent_auto
+      changed_when: false
+
+    - name: Verify auto-update state
+      ansible.builtin.command:
+        argv: [dh-pve-agent, auto-update, status]
+      register: core10_auto_status
+      changed_when: false
+      failed_when: core10_auto_status.stdout is not search('(?i)\bon\b')
+
+    - name: Require active PVE Agent
+      ansible.builtin.command:
+        argv: [systemctl, is-active, digitalhouses_pve_agent.service]
+      changed_when: false
+
+    - name: Report current PVE Agent state
+      ansible.builtin.command:
+        argv: [dh-pve-agent, status]
+      changed_when: false
