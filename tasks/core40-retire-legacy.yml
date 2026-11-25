@@ -178,14 +178,8 @@
   no_log: true
   when: core40_storage_legacy | length == 1
 
-- name: Require the new CORE PVE PBS target is accessible before switching jobs
-  ansible.builtin.command:
-    argv: [pvesm, status, --storage, pbs-core]
-  register: core40_cutover_target_status
-  changed_when: false
-  failed_when: >-
-    core40_cutover_target_status.rc != 0 or
-    not (core40_cutover_target_status.stdout is search('(?m)^pbs-core\\s+pbs\\s+active\\s+'))
+- name: Reconcile metrics access and require real capacity before switching jobs
+  ansible.builtin.include_tasks: core40-pbs-capacity.yml
 
 - name: Inspect existing verified CORE backup snapshot under new namespace
   ansible.builtin.command:

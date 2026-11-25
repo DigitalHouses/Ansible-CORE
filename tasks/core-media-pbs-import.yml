@@ -113,6 +113,26 @@
   changed_when: true
   when: core_media_pbs_core_namespace.stat.isdir | default(false)
 
+- name: Read restored ACLs for the CORE PVE token
+  ansible.builtin.command:
+    argv: [proxmox-backup-manager, acl, list, --output-format, json]
+  register: core_media_pbs_capacity_acl
+  changed_when: false
+  when: core_media_pbs_core_namespace.stat.isdir | default(false)
+
+- name: Restore only non-inheritable datastore audit for CORE PVE capacity
+  ansible.builtin.command:
+    argv: [proxmox-backup-manager, acl, update, /datastore/pbs-core, DatastoreAudit, --auth-id, 'root@pam!pve-local', --propagate, 'false']
+  changed_when: true
+  when:
+    - core_media_pbs_core_namespace.stat.isdir | default(false)
+    - >-
+      (core_media_pbs_capacity_acl.stdout | from_json
+       | selectattr('path', 'equalto', '/datastore/pbs-core')
+       | selectattr('ugid', 'equalto', 'root@pam!pve-local')
+       | selectattr('roleid', 'equalto', 'DatastoreAudit')
+       | rejectattr('propagate') | list | length) != 1
+
 - name: Check imported PBS datastore paths from original configuration
   ansible.builtin.command:
     argv: [proxmox-backup-manager, datastore, list, --output-format, json]

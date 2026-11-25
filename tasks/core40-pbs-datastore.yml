@@ -173,6 +173,10 @@
       - (((core40_datastore_readback.stdout | from_json)['out-data'] | trim) | from_json).path == '/serzhan-pool/pbs-core'
     fail_msg: CORE40_DATASTORE_READBACK_MISMATCH
 
+- name: Reconcile non-inheritable metrics access for an existing CORE PVE PBS connection
+  ansible.builtin.include_tasks: core40-pbs-capacity.yml
+  when: core40_storage_central | length == 1
+
 - name: Report dedicated central datastore prepared without any Sync Job
   ansible.builtin.debug:
     msg:
