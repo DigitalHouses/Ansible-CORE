@@ -146,3 +146,27 @@ Four other installations were observed in KZ (two Internet App and two Zigbee Mo
   Public `https://telemetry.digitalhouses.vip/healthz` returned **HTTP 200**
   after deployment. The next stable cloudflared release has not yet been
   observed applying automatically; that remains subject to upstream release timing.
+
+## CT1245 boot reliability — 25.11.2026
+
+Observed on PVE 8.4.21, Debian 13/systemd 257.13: unprivileged CT1245
+had no nesting feature, 18 failed systemd units, AppArmor mount denials
+(including sd-mkdcreds ramfs), journald 243/CREDENTIALS, and nginx tried
+to bind .245:8082 before ifupdown2 networking.service finished.
+The existing network-online.target dependency alone did not prevent this.
+
+- New `deploy` creates CT1245 with `--features nesting=1`, retaining
+  unprivileged mode and AppArmor.
+- Existing `origin-network` reconciles the same nesting setting and
+  native nginx drop-in `/etc/systemd/system/nginx.service.d/10-dh-network.conf`
+  (Requires/After=networking.service), preserving existing LXC feature flags.
+- If boot parameters change on an existing CT, №60 performs a graceful
+  shutdown/start and checks native systemd boot and all Stats services
+  before reloading the existing origin. No DB reinstall, DNS changes,
+  new timers, boot scripts, or artificial startup delay.
+- Public origin remains 192.168.11.245:8082. Nesting increases permitted
+  namespace/mount operations; the container remains unprivileged and
+  AppArmor is not disabled.
+- Live acceptance pending execution on CORE; verify zero failed units,
+  nginx and journald active, local/public health 200, and a subsequent
+  controlled PVE reboot. Do not mark the incident resolved before testing.

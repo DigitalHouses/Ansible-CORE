@@ -1,0 +1,103 @@
+---
+# Debian 13/systemd boot compatibility and deterministic static IPv4 ordering.
+# The caller has already validated the dedicated CT identity and started it.
+- name: Read effective CT1245 configuration
+  ansible.builtin.command:
+    argv: [pct, config, "{{ core_stats_ctid | string }}", --current, '1']
+  register: core60_boot_config
+  changed_when: false
+
+- name: Require the canonical unprivileged Debian container
+  ansible.builtin.assert:
+    that:
+      - "'hostname: dh-stats-CORE' in core60_boot_config.stdout_lines"
+      - "'ostype: debian' in core60_boot_config.stdout_lines"
+      - "'unprivileged: 1' in core60_boot_config.stdout_lines"
+      - core60_boot_config.stdout is search('(?m)^net0: name=eth0,bridge=vmbr0,.*ip=192[.]168[.]11[.]245/24')
+
+- name: Read enabled LXC features without dropping unrelated flags
+  ansible.builtin.set_fact:
+    core60_boot_features: "{{ (core60_boot_config.stdout | regex_findall('(?m)^features: (.+)$') | first | default('')).split(',') | reject('equalto', '') | list }}"
+    core60_nginx_boot_unit: |-
+      [Unit]
+      Requires=networking.service
+      After=networking.service
+
+- name: Read the existing nginx network dependency
+  ansible.builtin.command:
+    argv: [pct, exec, "{{ core_stats_ctid | string }}", --, cat, /etc/systemd/system/nginx.service.d/10-dh-network.conf]
+  register: core60_boot_dropin
+  changed_when: false
+  failed_when: false
+
+- name: Determine if a cold container restart is needed
+  ansible.builtin.set_fact:
+    core60_boot_nesting_missing: "{{ 'nesting=1' not in core60_boot_features }}"
+    core60_boot_dropin_changed: "{{ core60_boot_dropin.rc != 0 or (core60_boot_dropin.stdout | trim) != (core60_nginx_boot_unit | trim) }}"
+
+- name: Install native nginx dependency on the actual ifupdown2 networking service
+  ansible.builtin.command:
+    argv:
+      - pct
+      - exec
+      - "{{ core_stats_ctid | string }}"
+      - --
+      - sh
+      - -c
+      - 'install -d -m 0755 /etc/systemd/system/nginx.service.d && printf "%s\n" "$1" > /etc/systemd/system/nginx.service.d/10-dh-network.conf && chmod 0644 /etc/systemd/system/nginx.service.d/10-dh-network.conf'
+      - sh
+      - "{{ core60_nginx_boot_unit }}"
+  when: core60_boot_dropin_changed | bool
+  changed_when: true
+
+- name: Apply LXC boot compatibility and validate a changed existing container by cold restart
+  when: (core60_boot_nesting_missing | bool) or ((core60_existing_id | length == 1) and (core60_boot_dropin_changed | bool))
+  block:
+    - name: Gracefully shut down only CT1245
+      ansible.builtin.command:
+        argv: [pct, shutdown, "{{ core_stats_ctid | string }}", --timeout, '60']
+      changed_when: true
+
+    - name: Enable nesting while preserving existing LXC features
+      ansible.builtin.command:
+        argv:
+          - pct
+          - set
+          - "{{ core_stats_ctid | string }}"
+          - --features
+          - "{{ ((core60_boot_features | reject('match', '^nesting=') | list) + ['nesting=1']) | join(',') }}"
+      when: core60_boot_nesting_missing | bool
+      changed_when: true
+
+    - name: Start CT1245 with its effective LXC profile
+      ansible.builtin.command:
+        argv: [pct, start, "{{ core_stats_ctid | string }}"]
+      changed_when: true
+
+    - name: Wait for the native systemd boot transaction to finish
+      ansible.builtin.command:
+        argv: [pct, exec, "{{ core_stats_ctid | string }}", --, systemctl, is-system-running, --wait]
+      register: core60_boot_state
+      changed_when: false
+      failed_when: false
+
+    - name: Read failed units after cold start
+      ansible.builtin.command:
+        argv: [pct, exec, "{{ core_stats_ctid | string }}", --, systemctl, --failed, --no-pager]
+      register: core60_boot_failed
+      changed_when: false
+
+    - name: Require clean systemd boot without manually starting nginx
+      ansible.builtin.assert:
+        that:
+          - core60_boot_state.stdout | trim == 'running'
+        fail_msg: "{{ core60_boot_failed.stdout }}"
+
+- name: Reload systemd configuration for newly created CT before package installation
+  ansible.builtin.command:
+    argv: [pct, exec, "{{ core_stats_ctid | string }}", --, systemctl, daemon-reload]
+  when:
+    - core60_existing_id | length == 0
+    - core60_boot_dropin_changed | bool
+    - not (core60_boot_nesting_missing | bool)
+  changed_when: true

@@ -84,3 +84,15 @@
           - "'CORE60_CF_DASHBOARD=LAN_ONLY' in (cutover | to_json)"
           - "'pct, stop' not in (cutover | to_json)"
           - "'192.168.11.220' not in (cutover | to_json)"
+
+    - name: Require native Debian 13 boot compatibility for new and existing CT1245
+      ansible.builtin.assert:
+        that:
+          - "'nesting=1' in (deploy_tasks | to_json)"
+          - "'core60-boot.yml' in (deploy_tasks | to_json)"
+          - "'core60-boot.yml' in (lookup('ansible.builtin.file', root ~ '/tasks/core60-network-origin.yml'))"
+          - "'Requires=networking.service' in (lookup('ansible.builtin.file', root ~ '/tasks/core60-boot.yml'))"
+          - "'After=networking.service' in (lookup('ansible.builtin.file', root ~ '/tasks/core60-boot.yml'))"
+          - "'pct, shutdown' in (lookup('ansible.builtin.file', root ~ '/tasks/core60-boot.yml'))"
+          - "'pct, destroy' not in (lookup('ansible.builtin.file', root ~ '/tasks/core60-boot.yml'))"
+          - "'systemctl, is-system-running, --wait' in (lookup('ansible.builtin.file', root ~ '/tasks/core60-boot.yml'))"

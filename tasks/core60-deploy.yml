@@ -91,6 +91,8 @@
       - 'local-lvm:16'
       - --unprivileged
       - '1'
+      - --features
+      - nesting=1
       - --net0
       - name=eth0,bridge=vmbr0,ip=192.168.11.245/24,gw=192.168.11.1
       - --onboot
@@ -128,6 +130,9 @@
     that:
       - core60_guest_hostname.stdout | trim == core_resource_standard.stats_ct_name
     fail_msg: CORE60_GUEST_HOSTNAME_MISMATCH
+
+- name: Configure native CT and nginx boot dependencies
+  ansible.builtin.include_tasks: core60-boot.yml
 
 - name: Stage audited DH Stats installation script on the trusted PVE
   ansible.builtin.copy:
