@@ -622,3 +622,21 @@ LAN success as Cloudflare proof. Do not modify HOME from CORE.
 - CORE №40 Job **#77** — `success changed=0 failed=0`.
   VM2243 и legacy storage остались; сетевое управление
   передано CORE №71. WARP playbook actions больше не существуют.
+
+## CORE PVE datastore capacity ACL — 26.11.2026
+
+A namespace-only PVE token may get active PBS storage with zero capacity from
+the PBS API. For the existing CORE connection (PVE .240 to PBS VM2243 .243,
+storage and datastore pbs-core, namespace dh-core, token root@pam!pve-local)
+grant DatastoreAudit on /datastore/pbs-core with propagate=false. This gives
+aggregate metrics and audit metadata at the datastore/root namespace, not
+backup content access or inherited permissions in separate HOME namespaces.
+Existing namespace roles and HOME tokens are unchanged.
+
+Run existing №40 `prepare` when pbs-core is already connected: it reconciles
+the ACL only when missing or incorrectly inherited, reads it back after a
+change, and requires `pvesm status --storage pbs-core` to report active and
+positive total capacity. No backup jobs or data changes are part of this
+operation. The same ACL is applied during initial connection migration
+(`retire-legacy`) and restoration of the existing CORE token in №31.
+No new Semaphore task or survey option. Live acceptance pending execution.

@@ -51,3 +51,12 @@
           - >-
             (cutover | selectattr('name','equalto',
              'Add CORE PVE pbs-core storage pointing exclusively at dh-core namespace') | first).no_log
+
+    - name: Require capacity ACL applied in existing preparation and connection paths
+      ansible.builtin.assert:
+        that:
+          - "'core40-pbs-capacity.yml' in cutover_src"
+          - "'core40-pbs-capacity.yml' in lookup('ansible.builtin.file', root ~ '/tasks/core40-pbs-datastore.yml')"
+          - "'--propagate, ''false''' in lookup('ansible.builtin.file', root ~ '/tasks/core40-pbs-capacity.yml')"
+          - "'pvesm, status, --storage, pbs-core' in lookup('ansible.builtin.file', root ~ '/tasks/core40-pbs-capacity.yml')"
+          - "'--propagate, ''false''' in lookup('ansible.builtin.file', root ~ '/tasks/core-media-pbs-import.yml')"

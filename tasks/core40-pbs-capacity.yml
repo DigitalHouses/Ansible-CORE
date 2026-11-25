@@ -1,0 +1,88 @@
+---
+# The PVE token may see aggregate datastore metrics, never inherit access to HOME namespaces.
+- name: Read the actual PVE PBS storage configuration
+  ansible.builtin.command:
+    argv: [pvesh, get, /storage/pbs-core, --output-format, json]
+  register: core40_capacity_storage
+  changed_when: false
+
+- name: Require the canonical CORE-only storage connection
+  ansible.builtin.assert:
+    that:
+      - (core40_capacity_storage.stdout | from_json).type == 'pbs'
+      - (core40_capacity_storage.stdout | from_json).server == '192.168.11.243'
+      - (core40_capacity_storage.stdout | from_json).datastore == 'pbs-core'
+      - (core40_capacity_storage.stdout | from_json).namespace == 'dh-core'
+      - (core40_capacity_storage.stdout | from_json).username == 'root@pam!pve-local'
+    fail_msg: CORE40_PVE_PBS_CONNECTION_MISMATCH
+
+- name: Read current datastore ACLs through the trusted PBS guest
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, proxmox-backup-manager, acl, list, --output-format, json]
+  register: core40_capacity_acl_before
+  changed_when: false
+  failed_when: >-
+    core40_capacity_acl_before.rc != 0 or
+    (core40_capacity_acl_before.stdout | from_json).exitcode | default(1) | int != 0 or
+    ((core40_capacity_acl_before.stdout | from_json)['out-truncated'] | default(false) | bool)
+
+- name: Detect exact non-inheritable datastore audit permission
+  ansible.builtin.set_fact:
+    core40_capacity_acl_missing: >-
+      {{ (((core40_capacity_acl_before.stdout | from_json)['out-data'] | from_json)
+          | selectattr('path', 'equalto', '/datastore/pbs-core')
+          | selectattr('ugid', 'equalto', 'root@pam!pve-local')
+          | selectattr('roleid', 'equalto', 'DatastoreAudit')
+          | rejectattr('propagate') | list | length) != 1 }}
+
+- name: Read current PVE capacity before correcting the permission
+  ansible.builtin.command:
+    argv: [pvesm, status, --storage, pbs-core]
+  register: core40_capacity_before
+  changed_when: false
+  failed_when: false
+  when: core40_capacity_acl_missing | bool
+
+- name: Grant datastore metrics access without inheritance
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, proxmox-backup-manager, acl, update, /datastore/pbs-core, DatastoreAudit, --auth-id, 'root@pam!pve-local', --propagate, 'false']
+  register: core40_capacity_acl_update
+  changed_when: true
+  failed_when: >-
+    core40_capacity_acl_update.rc != 0 or
+    (core40_capacity_acl_update.stdout | from_json).exitcode | default(1) | int != 0
+  when: core40_capacity_acl_missing | bool
+
+- name: Read back non-inheritable audit ACL when changed
+  ansible.builtin.command:
+    argv: [qm, guest, exec, '2243', --, proxmox-backup-manager, acl, list, --output-format, json]
+  register: core40_capacity_acl_after
+  changed_when: false
+  failed_when: >-
+    core40_capacity_acl_after.rc != 0 or
+    (core40_capacity_acl_after.stdout | from_json).exitcode | default(1) | int != 0 or
+    ((core40_capacity_acl_after.stdout | from_json)['out-truncated'] | default(false) | bool) or
+    (((core40_capacity_acl_after.stdout | from_json)['out-data'] | from_json)
+      | selectattr('path', 'equalto', '/datastore/pbs-core')
+      | selectattr('ugid', 'equalto', 'root@pam!pve-local')
+      | selectattr('roleid', 'equalto', 'DatastoreAudit')
+      | rejectattr('propagate') | list | length) != 1
+  when: core40_capacity_acl_missing | bool
+
+- name: Verify real capacity using the configured PVE storage token
+  ansible.builtin.command:
+    argv: [pvesm, status, --storage, pbs-core]
+  register: core40_capacity_after
+  changed_when: false
+  until: >-
+    core40_capacity_after.rc == 0 and
+    core40_capacity_after.stdout is search('(?m)^pbs-core[ \t]+pbs[ \t]+active[ \t]+[1-9][0-9]*[ \t]+[0-9]+[ \t]+[0-9]+[ \t]+')
+  retries: 5
+  delay: 2
+
+- name: Report observed PVE capacity before and after ACL reconciliation
+  ansible.builtin.debug:
+    msg:
+      - "CORE40_PBS_CAPACITY_BEFORE={{ core40_capacity_before.stdout_lines | default(['ACL_ALREADY_CORRECT']) }}"
+      - "CORE40_PBS_CAPACITY_AFTER={{ core40_capacity_after.stdout_lines }}"
+      - CORE40_PBS_CAPACITY=PASS
