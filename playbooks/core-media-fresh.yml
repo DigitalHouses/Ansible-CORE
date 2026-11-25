@@ -17,7 +17,7 @@
     media_disk_action: "{{ DH_CORE31_DISK_ACTION | default('import', true) }}"
     media_root_password: "{{ DH_CORE_MEDIA_ROOT_PASSWORD | default(lookup('ansible.builtin.env', 'DH_CORE_MEDIA_ROOT_PASSWORD'), true) }}"
   tasks:
-    - name: Require only clean install or audit, pinned CORE identity and non-destructive ZFS import
+    - name: Require lifecycle choice and pinned CORE identity
       ansible.builtin.assert:
         that:
           - core31_action in ['create', 'update']
@@ -508,7 +508,7 @@
 
     - name: Verify installed media and PBS services
       ansible.builtin.command:
-        argv: [qm, guest, exec, '2243', --, systemctl, is-active, plexmediaserver, jellyfin, qbittorrent-nox, smbd, nginx, proxmox-backup, proxmox-backup-proxy, tailscaled, webmin, radarr, sonarr, prowlarr, filestash, dh-rclone-gui]
+        argv: [qm, guest, exec, '2243', --, systemctl, is-active, plexmediaserver, jellyfin, qbittorrent, smbd, nginx, proxmox-backup, proxmox-backup-proxy, tailscaled, webmin, radarr, sonarr, prowlarr, filestash, dh-rclone-gui]
       register: core31_update_services
       changed_when: false
       failed_when: (core31_update_services.stdout | from_json).exitcode | default(1) | int != 0
