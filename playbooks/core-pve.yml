@@ -60,6 +60,13 @@
         fail_msg: CORE10_AGENT_NOT_INSTALLED_RUN_CREATE
       when: core10_action == 'update'
 
+    - name: Update existing PVE OS packages without a release upgrade or reboot
+      ansible.builtin.apt:
+        update_cache: true
+        upgrade: safe
+        dpkg_options: force-confdef,force-confold
+      when: core10_action == 'update'
+
     - name: Install Tailscale on Create or upgrade on Update
       ansible.builtin.include_tasks: ../tasks/core71-tailscale-pve.yml
       vars:
@@ -121,14 +128,18 @@
         argv: [dh-pve-agent, auto-update, status]
       register: core10_auto_status
       changed_when: false
-      failed_when: core10_auto_status.stdout is not search('(?i)\bon\b')
+      failed_when: core10_auto_status.stdout | trim != 'ON'
 
     - name: Require active PVE Agent
       ansible.builtin.command:
         argv: [systemctl, is-active, digitalhouses_pve_agent.service]
       changed_when: false
 
-    - name: Report current PVE Agent state
+    - name: Require PVE Agent MQTT connectivity
       ansible.builtin.command:
         argv: [dh-pve-agent, status]
+      register: core10_agent_status
       changed_when: false
+      retries: 5
+      delay: 5
+      until: core10_agent_status.rc == 0 and core10_agent_status.stdout is search('State:[ \\t]+CONNECTED')
