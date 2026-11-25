@@ -43,7 +43,7 @@ tasks:
           - {name: "Продолжить установку", value: resume}
   - name: 40-CORE Infrastructure
     playbook: playbooks/core-pbs.yml
-    description: "Проверка PBS, настройка datastore pbs-core и прав PVE, перенос резервирования CORE с сохранением данных ZFS"
+    description: "Проверка PVE и PBS, настройка pbs-core и прав PVE, перенос резервирования CORE со снятием старых регистраций и сохранением данных ZFS"
     survey_vars:
       - name: DH_CORE40_ACTION
         title: "Действие"
@@ -52,7 +52,7 @@ tasks:
         required: true
         default_value: audit
         values:
-          - {name: "Проверить PBS", value: audit}
+          - {name: "Проверить PVE и PBS", value: audit}
           - {name: "Настроить хранилище PBS", value: prepare}
           - {name: "Перенести резервирование CORE в pbs-core", value: retire-legacy}
   - name: 50-Central Backup
@@ -67,9 +67,9 @@ tasks:
         default_value: audit
         values:
           - {name: "Проверить резервные копии всех HOME", value: audit}
-          - {name: "Подключить HOME к PBS", value: prepare}
+          - {name: "Подготовить приём копий HOME", value: prepare}
           - {name: "Проверить целостность копий HOME", value: verify}
-          - {name: "Настроить расписание Verify и Prune", value: maintenance}
+          - {name: "Настроить Verify (Prune выключен)", value: maintenance}
       - name: DH_CORE50_HOME_ID
         title: "HOME ID (кроме проверки всех HOME)"
         type: ""
