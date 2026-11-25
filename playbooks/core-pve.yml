@@ -54,6 +54,12 @@
         path: /usr/local/bin/dh-pve-agent
       register: core10_agent
 
+    - name: Require installed agent before Update
+      ansible.builtin.assert:
+        that: core10_agent.stat.exists
+        fail_msg: CORE10_AGENT_NOT_INSTALLED_RUN_CREATE
+      when: core10_action == 'update'
+
     - name: Install Tailscale on Create or upgrade on Update
       ansible.builtin.include_tasks: ../tasks/core71-tailscale-pve.yml
       vars:
