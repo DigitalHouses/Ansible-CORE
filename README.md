@@ -33,3 +33,11 @@ Original source: `DigitalHouses/Ansible-3` is archived for history.
 ### CORE DH Stats (№60)
 
 CORE DH Stats работает на CT1245/IP `192.168.11.245`; туннель `dh-core` принимает `telemetry.digitalhouses.vip` через защищённый origin `http://192.168.11.245:8082`, локальный dashboard на `:80`. Действия №60: **Создать** и **Обновить** (без удаления статистики). Подробнее: [docs/task60-dh-stats.md](docs/task60-dh-stats.md).
+
+## CORE lifecycle (26.11.2026)
+
+S23: component-oriented Create/Update; Media/PBS additionally has an independent Import/Erase selection used only by Create. Update bypasses the VM and ZFS lifecycle entirely. Current CORE Media/PBS Create supports the preserved-pool Import path; Erase intentionally fails before contacting PVE pending a complete fresh PBS and Tailscale identity flow. Update upgrades existing APT-managed services, applies PBS capacity ACL and Tailscale auto-update, without disk operations. Non-APT releases remain under their existing native mechanisms/pinned releases; no forced reinstall.
+
+New CORE №10 configures Tailscale and installs/updates PVE Agent using the official CLI and native auto-update. First-install MQTT credentials are optional fields in CORE №05. Existing agent settings and UPS configuration are preserved. CORE №50 Create prepares the selected HOME receiver; Update reconciles its native maintenance. CORE №60 uses Create/Update with Update as default; never deletes its embedded DB.
+
+Legacy CORE №30/40/71 remain available until their functions are completely migrated; do not run them as routine deployment steps. No HOME repository is changed.

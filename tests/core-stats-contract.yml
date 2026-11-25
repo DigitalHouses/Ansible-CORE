@@ -21,7 +21,7 @@
           - core_resource_standard.stats_ct_name == 'dh-stats-CORE'
           - core_resource_standard.stats_octet == 245
           - entry.playbook == 'playbooks/core-stats.yml'
-          - entry.survey_vars[0].default_value == 'create'
+          - entry.survey_vars[0].default_value == 'update'
           - entry.survey_vars[0]['values'] | map(attribute='value') | list == ['create','update']
           - "'core-resource-standard-assert.yml' in (audit | to_json)"
           - "'pvesh' in (audit | to_json)"

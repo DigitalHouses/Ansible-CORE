@@ -12,7 +12,7 @@
   vars:
     core50_site: "{{ lookup('ansible.builtin.file', '/etc/digitalhouses/site-id') | trim }}"
     core50_profile: "{{ lookup('ansible.builtin.file', '/etc/digitalhouses/site-profile') | trim }}"
-    core50_action: "{{ DH_CORE50_ACTION | default('audit', true) }}"
+    core50_action: "{{ DH_CORE50_ACTION | default('update', true) }}"
     core50_home_id: "{{ DH_CORE50_HOME_ID | default('serzhan-home', true) | trim }}"
   tasks:
     - name: Refuse a HOME runner or an unexpected PVE
@@ -24,7 +24,7 @@
           - pve.node | length > 0
           - core50_home_id is match('^[a-z0-9][a-z0-9-]{0,38}[a-z0-9]$')
           - core50_home_id != 'dh-core'
-          - core50_action in ['audit', 'prepare', 'verify', 'maintenance']
+          - core50_action in ['create', 'update']
         fail_msg: CORE50_MUST_RUN_FROM_DH_CORE_SEMAPHORE
 
     - name: Assert canonical CORE bootstrap profile and guest ID mapping
@@ -112,21 +112,12 @@
           - (core50_datastores | selectattr('name', 'equalto', 'pbs-core') | first).path == '/serzhan-pool/pbs-core'
         fail_msg: CORE50_CENTRAL_DATASTORE_MISSING_OR_CHANGED
 
-    - name: Audit freshness of all HOME namespaces
-      ansible.builtin.include_tasks: ../tasks/core50-home-audit.yml
-      when: core50_action == 'audit'
-
     - name: Prepare CORE receiving side of selected HOME Push/Restore
       ansible.builtin.include_tasks: ../tasks/core50-home-prepare.yml
-      when: core50_action == 'prepare'
+      when: core50_action == 'create'
 
-    - name: Verify only received snapshots from selected HOME on CORE PBS
-      ansible.builtin.include_tasks: ../tasks/core50-home-verify.yml
-      when: core50_action == 'verify'
-
-    - name: Configure native namespace-only Verify and disabled Prune for prepared HOME
+    - name: Configure native namespace-only Verify and disabled Prune for selected HOME
       ansible.builtin.include_tasks: ../tasks/core50-home-maintenance.yml
-      when: core50_action in ['prepare', 'maintenance']
 
     - name: Report read-only backup configuration status
       ansible.builtin.debug:

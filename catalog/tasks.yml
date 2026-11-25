@@ -13,6 +13,21 @@ tasks:
       - {name: DH_INPUT_CLOUDFLARE_ENROLL_CLIENT_ID, title: "Cloudflare One — enrollment Service Token Client ID (пусто — сохранить прежний)", type: secret, target: env, required: false, values: []}
       - {name: DH_INPUT_CLOUDFLARE_ENROLL_CLIENT_SECRET, title: "Cloudflare One — enrollment Service Token Client Secret (пусто — сохранить прежний)", type: secret, target: env, required: false, values: []}
       - {name: DH_INPUT_TAILSCALE_AUTH_KEY, title: "Tailscale — auth key для CORE PVE/PBS (пусто — сохранить прежний)", type: secret, target: env, required: false, values: []}
+      - {name: DH_INPUT_CORE_MQTT_USERNAME, title: "CORE MQTT — пользователь (пусто — сохранить прежнее)", type: secret, target: env, required: false, values: []}
+      - {name: DH_INPUT_CORE_MQTT_PASSWORD, title: "CORE MQTT — пароль (пусто — сохранить прежнее)", type: secret, target: env, required: false, values: []}
+  - name: "10-CORE PVE"
+    playbook: playbooks/core-pve.yml
+    description: "Настройка установленного CORE PVE: Tailscale и PVE Agent с native auto-update; Update обновляет управляемые компоненты без переустановки PVE."
+    survey_vars:
+      - name: DH_CORE10_ACTION
+        title: "Действие"
+        type: enum
+        target: ""
+        required: true
+        default_value: update
+        values:
+          - {name: "Create", value: create}
+          - {name: "Update", value: update}
   - name: "30-CORE Media E2E"
     playbook: playbooks/core-media-e2e.yml
     description: "Проверка медиасервера CORE, исправление сетевых настроек и портала, переименование VM без пересоздания или изменения ZFS"
@@ -27,20 +42,29 @@ tasks:
           - {name: "Проверить медиасервер", value: audit}
           - {name: "Исправить сетевые настройки и портал", value: repair-portal}
           - {name: "Переименовать VM медиасервера", value: sync-name}
-  - name: "31-CORE Media/PBS — Create/Recreate + Import"
+  - name: "31-CORE Media Server + PBS"
+    previous_name: "31-CORE Media/PBS — Create/Recreate + Import"
     playbook: playbooks/core-media-fresh.yml
-    description: "Создание или пересоздание CORE Media/PBS на Debian 13 с импортом существующего serzhan-pool, без стирания дисков; продолжение установки без пересоздания."
+    description: "Create пересоздаёт системный диск с Import. Erase пока заблокирован до реализации чистой PBS/Tailscale идентичности. Update обновляет существующие пакеты и конфигурацию, не затрагивает диски."
     survey_vars:
       - name: DH_CORE31_ACTION
         title: "Действие"
         type: enum
         target: ""
         required: true
-        default_value: audit
+        default_value: update
         values:
-          - {name: "Проверить VM и ZFS", value: audit}
-          - {name: "Создать / пересоздать VM с импортом ZFS", value: apply}
-          - {name: "Продолжить установку", value: resume}
+          - {name: "Create", value: create}
+          - {name: "Update", value: update}
+      - name: DH_CORE31_DISK_ACTION
+        title: "Диски данных (только Create)"
+        type: enum
+        target: ""
+        required: true
+        default_value: import
+        values:
+          - {name: "Import", value: import}
+          - {name: "Erase (пока недоступно)", value: erase}
   - name: 40-CORE Infrastructure
     playbook: playbooks/core-pbs.yml
     description: "Проверка PVE и PBS, настройка pbs-core и прав PVE, перенос резервирования CORE со снятием старых регистраций и сохранением данных ZFS"
@@ -57,21 +81,19 @@ tasks:
           - {name: "Перенести резервирование CORE в pbs-core", value: retire-legacy}
   - name: 50-Central Backup
     playbook: playbooks/core-backup.yml
-    description: "Контроль копий HOME, подключение HOME, ручной Verify, ежедневный Verify и настройка Prune (остаётся отключённым)"
+    description: "Create подготавливает приём копий выбранного HOME, Update актуализирует его настройки Verify и отключённого Prune. HOME не изменяется."
     survey_vars:
       - name: DH_CORE50_ACTION
         title: "Действие"
         type: enum
         target: ""
         required: true
-        default_value: audit
+        default_value: update
         values:
-          - {name: "Проверить резервные копии всех HOME", value: audit}
-          - {name: "Подготовить приём копий HOME", value: prepare}
-          - {name: "Проверить целостность копий HOME", value: verify}
-          - {name: "Настроить Verify (Prune выключен)", value: maintenance}
+          - {name: "Create", value: create}
+          - {name: "Update", value: update}
       - name: DH_CORE50_HOME_ID
-        title: "HOME ID (кроме проверки всех HOME)"
+        title: "HOME ID"
         type: ""
         target: ""
         required: true
@@ -86,10 +108,10 @@ tasks:
         type: enum
         target: ""
         required: true
-        default_value: create
+        default_value: update
         values:
-          - {name: "Создать", value: create}
-          - {name: "Обновить", value: update}
+          - {name: "Create", value: create}
+          - {name: "Update", value: update}
   - name: 71-Tailscale
     playbook: playbooks/core-tailscale.yml
     description: "Управление Tailscale на CORE PVE и PBS; штатное автообновление"

@@ -9,7 +9,7 @@
     - /etc/digitalhouses/pve.yml
     - ../vars/core-resource-standard.yml
   vars:
-    core60_action: "{{ DH_CORE60_ACTION | default('create', true) }}"
+    core60_action: "{{ DH_CORE60_ACTION | default('update', true) }}"
   tasks:
     - name: Require a supported lifecycle action and CORE PVE
       ansible.builtin.assert:

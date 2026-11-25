@@ -23,16 +23,16 @@
     - name: Require variable HOME ID without a registry or hardcoded HOME list
       ansible.builtin.assert:
         that:
-          - actions == ['audit','prepare','verify','maintenance']
-          - core50.survey_vars[0].default_value == 'audit'
+          - actions == ['create','update']
+          - core50.survey_vars[0].default_value == 'update'
           - core50.survey_vars[1].name == 'DH_CORE50_HOME_ID'
           - core50.survey_vars[1].default_value == 'serzhan-home'
           - "'core50_home_id' in (playbook | to_json)"
           - "'^[a-z0-9]' in (playbook | to_json)"
-          - "'../tasks/core50-home-audit.yml' in (playbook | to_json)"
+          - "'../tasks/core50-home-audit.yml' not in (playbook | to_json)"
           - "'../tasks/core50-home-maintenance.yml' in (playbook | to_json)"
           - "'../tasks/core50-home-prepare.yml' in (playbook | to_json)"
-          - "'../tasks/core50-home-verify.yml' in (playbook | to_json)"
+          - "'../tasks/core50-home-verify.yml' not in (playbook | to_json)"
 
     - name: Require identities and privileges to use the selected HOME only
       ansible.builtin.assert:
