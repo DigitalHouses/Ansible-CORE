@@ -479,7 +479,8 @@
       changed_when: false
       failed_when: >-
         (core31_update_identity.stdout | from_json).exitcode | default(1) | int != 0 or
-        ((core31_update_identity.stdout | from_json)['out-data'] | trim) != 'mediaserver-dh-core'
+        ((core31_update_identity.stdout | from_json)['out-data'] | trim)
+        not in [media_spec.name, media_spec.os_hostname]
 
     - name: Update only existing managed APT packages inside Media/PBS
       ansible.builtin.command:
