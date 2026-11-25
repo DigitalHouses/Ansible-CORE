@@ -18,7 +18,7 @@
     pbs_identity: "{{ lookup('ansible.builtin.file', root ~ '/tasks/core-media-pbs-import.yml') | from_yaml }}"
     tailscale_tasks: "{{ lookup('ansible.builtin.file', root ~ '/tasks/core-media-tailscale-import.yml') | from_yaml }}"
     wsdd: "{{ lookup('ansible.builtin.file', root ~ '/tasks/media30-wsdd-apply.yml') | from_yaml }}"
-    item31: "{{ (catalog.tasks | selectattr('name', 'equalto', '31-CORE Media/PBS — Create/Recreate + Import') | list) | first }}"
+    item31: "{{ (catalog.tasks | selectattr('name', 'equalto', '31-CORE Media Server + PBS') | list) | first }}"
   tasks:
     - name: Pin CORE addressing, guest IDs, original SATA and ZFS
       ansible.builtin.assert:
