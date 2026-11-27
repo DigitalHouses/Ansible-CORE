@@ -81,7 +81,7 @@ import json
 import sys
 import urllib.request
 expected = {p["id"] for p in json.load(open(sys.argv[1]))["products"]}
-with urllib.request.urlopen("http://127.0.0.1:8081/v1/stats/products", timeout=8) as response:
+with urllib.request.urlopen("http://127.0.0.1:8081/v1/stats/products?raw=true", timeout=8) as response:
     actual = {p["product"] for p in json.load(response)}
 assert actual == expected, f"CORE60_DASHBOARD_CATALOG_MISMATCH missing={sorted(expected-actual)} unexpected={sorted(actual-expected)}"
 print("CORE60_DASHBOARD_CATALOG=PASS")
