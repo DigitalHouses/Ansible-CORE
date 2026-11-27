@@ -64,6 +64,12 @@ chmod -R a+rX "$APP"
 install -o root -g root -m 0644 "$APP/deploy/digitalhouses-stats.service" /etc/systemd/system/digitalhouses-stats.service
 install -o root -g root -m 0644 "$APP/deploy/digitalhouses-stats-dashboard-api.service" /etc/systemd/system/digitalhouses-stats-dashboard-api.service
 
+# Both services must import the deployed sources, not an older venv wheel.
+for svc in digitalhouses-stats digitalhouses-stats-dashboard-api; do
+  install -d -m 0755 "/etc/systemd/system/$svc.service.d"
+  printf '[Service]\nEnvironment=PYTHONPATH=%s\n' "$APP" > "/etc/systemd/system/$svc.service.d/20-local-source.conf"
+done
+
 # The upstream dashboard has an old HOME-specific LAN bind. Substitute only in
 # the installed CORE nginx config; do not edit the upstream product repository.
 grep -q '192.168.11.254:80' "$APP/deploy/nginx-digitalhouses-stats.conf" || { echo CORE60_DASHBOARD_BIND_CHANGED >&2; exit 2; }

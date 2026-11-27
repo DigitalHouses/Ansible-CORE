@@ -41,6 +41,13 @@ cp -a "$SRC/VERSION" "$APP/VERSION"
 cp -a "$SRC/pyproject.toml" "$APP/pyproject.toml"
 chmod -R a+rX "$APP" "$WEB"
 
+# Both services must import the deployed sources, not an older venv wheel.
+for svc in digitalhouses-stats digitalhouses-stats-dashboard-api; do
+  install -d -m 0755 "/etc/systemd/system/$svc.service.d"
+  printf '[Service]\nEnvironment=PYTHONPATH=%s\n' "$APP" > "/etc/systemd/system/$svc.service.d/20-local-source.conf"
+done
+systemctl daemon-reload
+
 # Installation is a local package copy, but both processes cache the allowlist
 # at import time. Restart and verify exact parity with the checked-out registry.
 systemctl restart digitalhouses-stats-dashboard-api digitalhouses-stats
@@ -52,7 +59,8 @@ from pathlib import Path
 catalog = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 expected = {p["id"] for p in catalog["products"] if p["telemetry_allowed"]}
 script = "import json; from digitalhouses_stats.products import ALLOWED_PRODUCTS; print(json.dumps(sorted(ALLOWED_PRODUCTS)))"
-actual = set(json.loads(subprocess.check_output([sys.argv[2], "-c", script], cwd="/", text=True)))
+app = str(Path(sys.argv[2]).parent.parent.parent)
+actual = set(json.loads(subprocess.check_output(["runuser", "-u", "digitalhouses-stats", "--", "env", f"PYTHONPATH={app}", sys.argv[2], "-c", script], cwd=app, text=True)))
 assert actual == expected, f"CORE60_REGISTRY_MISMATCH missing={sorted(expected - actual)} unexpected={sorted(actual - expected)}"
 print(f"CORE60_REGISTRY_SYNC=PASS allowed={len(actual)}")
 REGISTRY_CHECK
@@ -66,6 +74,18 @@ for url in http://127.0.0.1:8080/healthz http://127.0.0.1:8081/healthz http://19
   done
   [[ $ready == 1 ]] || { echo "CORE60_UPDATE_HEALTH_FAILED=$url"; exit 2; }
 done
+
+# Verify the actual running dashboard API, not only a root Python import.
+python3 - "$SRC/digitalhouses_stats/product_registry.json" <<'API_REGISTRY'
+import json
+import sys
+import urllib.request
+expected = {p["id"] for p in json.load(open(sys.argv[1]))["products"]}
+with urllib.request.urlopen("http://127.0.0.1:8081/v1/stats/products", timeout=8) as response:
+    actual = {p["product"] for p in json.load(response)}
+assert actual == expected, f"CORE60_DASHBOARD_CATALOG_MISMATCH missing={sorted(expected-actual)} unexpected={sorted(actual-expected)}"
+print("CORE60_DASHBOARD_CATALOG=PASS")
+API_REGISTRY
 
 # Read-only E2E contract: every country counter sums its product counters.
 python3 - <<'PY'
