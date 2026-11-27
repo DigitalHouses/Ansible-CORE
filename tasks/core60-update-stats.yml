@@ -34,6 +34,7 @@
       - "'CORE60_STATS_UPDATE=PASS' in core60_update_out.stdout_lines"
       - "'CORE60_STATS_COUNTRY_EXPANSION=ENABLED' in core60_update_out.stdout_lines"
       - core60_update_out.stdout is search('CORE60_COUNTRY_PRODUCT_COUNTS=PASS')
+      - core60_update_out.stdout is search('CORE60_REGISTRY_SYNC=PASS')
     fail_msg: CORE60_STATS_UPDATE_ACCEPTANCE_FAILED
 
 - name: Report updated DH Stats application

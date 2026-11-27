@@ -15,6 +15,22 @@ WEB=/var/www/digitalhouses-stats
 }
 
 git -C "$REPO" pull --ff-only origin main
+
+# A new telemetry product is registered in the upstream canonical catalog.
+# Do not accept a deploy where the runtime catalog is stale or malformed.
+python3 - "$SRC/digitalhouses_stats/product_registry.json" <<'REGISTRY'
+import json
+import sys
+from pathlib import Path
+catalog = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+assert catalog.get("schema") == 1, "CORE60_REGISTRY_SCHEMA_INVALID"
+products = catalog.get("products")
+assert isinstance(products, list) and products, "CORE60_REGISTRY_EMPTY"
+ids = [p["id"] for p in products]
+assert len(ids) == len(set(ids)), "CORE60_REGISTRY_DUPLICATE_ID"
+assert all(isinstance(p.get("telemetry_allowed"), bool) for p in products), "CORE60_REGISTRY_POLICY_INVALID"
+print(f"CORE60_UPSTREAM_PRODUCT_COUNT={len(ids)}")
+REGISTRY
 [[ -f "$SRC/digitalhouses_stats/stats.py" && -f "$SRC/dashboard/assets/app.js" ]] || exit 2
 
 # Product-only files; leave DB credentials, schema and runtime dependencies untouched.
@@ -25,7 +41,21 @@ cp -a "$SRC/VERSION" "$APP/VERSION"
 cp -a "$SRC/pyproject.toml" "$APP/pyproject.toml"
 chmod -R a+rX "$APP" "$WEB"
 
+# Installation is a local package copy, but both processes cache the allowlist
+# at import time. Restart and verify exact parity with the checked-out registry.
 systemctl restart digitalhouses-stats-dashboard-api digitalhouses-stats
+python3 - "$SRC/digitalhouses_stats/product_registry.json" "$APP/.venv/bin/python" <<'REGISTRY_CHECK'
+import json
+import subprocess
+import sys
+from pathlib import Path
+catalog = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+expected = {p["id"] for p in catalog["products"] if p["telemetry_allowed"]}
+script = "import json; from digitalhouses_stats.products import ALLOWED_PRODUCTS; print(json.dumps(sorted(ALLOWED_PRODUCTS)))"
+actual = set(json.loads(subprocess.check_output([sys.argv[2], "-c", script], cwd="/", text=True)))
+assert actual == expected, f"CORE60_REGISTRY_MISMATCH missing={sorted(expected - actual)} unexpected={sorted(actual - expected)}"
+print(f"CORE60_REGISTRY_SYNC=PASS allowed={len(actual)}")
+REGISTRY_CHECK
 for url in http://127.0.0.1:8080/healthz http://127.0.0.1:8081/healthz http://192.168.11.245/healthz; do
   ready=0
   for attempt in $(seq 1 15); do
