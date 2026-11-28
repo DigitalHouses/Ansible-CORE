@@ -12,7 +12,9 @@ server {
     server_tokens off;
     access_log off;
 
-    location / {
+    # Only public telemetry protocol endpoints may reach ingestion.
+    location ^~ /internal/ { return 404; }
+    location ~ ^/(healthz|v1/heartbeat|v1/installation)$ {
         # The cloudflared connector runs in this same CT. Other LAN guests
         # cannot bypass Cloudflare to forge CF-IPCountry.
         allow 192.168.11.245;
@@ -24,6 +26,7 @@ server {
         proxy_set_header Connection "";
         proxy_read_timeout 15s;
     }
+    location / { return 404; }
 }
 NGINX
 chmod 0644 /etc/nginx/sites-available/dh-stats-network-origin
