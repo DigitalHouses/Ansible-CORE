@@ -107,8 +107,8 @@ PY
 python3 - <<'PY2'
 import urllib.request
 for address, marker in (
-    ('http://192.168.11.245/', 'Click a country to see apps and agents'),
-    ('http://192.168.11.245/assets/app.js?v=country-products', 'renderCountries'),
+    ('http://192.168.11.245/', 'id="countries"'),
+    ('http://192.168.11.245/assets/app.js', 'renderCountries'),
 ):
     with urllib.request.urlopen(address, timeout=8) as response:
         assert marker in response.read().decode('utf-8')
