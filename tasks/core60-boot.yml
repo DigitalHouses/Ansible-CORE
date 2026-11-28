@@ -13,7 +13,7 @@
       - "'hostname: dh-stats-CORE' in core60_boot_config.stdout_lines"
       - "'ostype: debian' in core60_boot_config.stdout_lines"
       - "'unprivileged: 1' in core60_boot_config.stdout_lines"
-      - core60_boot_config.stdout is search('(?m)^net0: name=eth0,bridge=vmbr0,.*ip=192[.]168[.]11[.]245/24')
+      - "core60_boot_config.stdout is search('(?m)^net0: name=eth0,bridge=vmbr0,.*ip=192[.]168[.]11[.]245/24')"
 
 - name: Read enabled LXC features without dropping unrelated flags
   ansible.builtin.set_fact:
